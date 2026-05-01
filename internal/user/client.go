@@ -73,6 +73,14 @@ type ChatClient struct {
 	closeOnce sync.Once
 }
 
+type LocalMessage struct {
+	Type      string `json:"type"`
+	Sender    string `json:"sender"`
+	Recipient string `json:"recipient"`
+	Content   string `json:"content"`
+	Timestamp string `json:"timestamp"`
+}
+
 func newChatClient(conn *websocket.Conn, username, room string) *ChatClient {
 	return &ChatClient{
 		conn:     conn,
@@ -170,7 +178,20 @@ func chatMenu(scanner *bufio.Scanner) {
 
 		switch choice {
 		case "1":
-			fmt.Println("📭 DM history not available yet")
+			history := loadDMHistory()
+			if len(history) == 0 {
+				fmt.Println("📭 No DM history")
+				return
+			}
+
+			fmt.Println("\n=== DM HISTORY ===")
+			for _, m := range history {
+				if m.Sender == session.Username {
+					fmt.Printf("➡️  To %s [%s]: %s\n", m.Recipient, m.Timestamp, m.Content)
+				} else {
+					fmt.Printf("⬅️  From %s [%s]: %s\n", m.Sender, m.Timestamp, m.Content)
+				}
+			}
 		case "2":
 			joinRoomFlow(scanner)
 		case "3":
@@ -273,7 +294,13 @@ func roomLoop(scanner *bufio.Scanner, client *ChatClient) {
 				Recipient: parts[0],
 				Content:   parts[1],
 			}
-
+			saveDM(LocalMessage{
+				Type:      "dm",
+				Sender:    client.username,
+				Recipient: parts[0],
+				Content:   parts[1],
+				Timestamp: time.Now().Format("15:04:05"),
+			})
 		case text == "/users":
 			client.send <- WSMessage{Type: "list_users"}
 
@@ -344,6 +371,14 @@ func sendDMFlow(scanner *bufio.Scanner) {
 	}
 
 	fmt.Printf("✅ DM sent to %s\n", user)
+
+	saveDM(LocalMessage{
+		Type:      "dm",
+		Sender:    session.Username,
+		Recipient: user,
+		Content:   msg,
+		Timestamp: time.Now().Format("15:04:05"),
+	})
 }
 
 func doRegister(scanner *bufio.Scanner) {
@@ -696,6 +731,14 @@ func (c *ChatClient) readLoop() {
 				fmt.Printf("\n💬 [%s] %s: %s\n", msg.Timestamp, msg.Sender, msg.Content)
 			case "dm":
 				fmt.Printf("\n📩 [DM][%s] %s: %s\n", msg.Timestamp, msg.Sender, msg.Content)
+
+				saveDM(LocalMessage{
+					Type:      "dm",
+					Sender:    msg.Sender,
+					Recipient: c.username,
+					Content:   msg.Content,
+					Timestamp: msg.Timestamp,
+				})
 			case "system":
 				fmt.Printf("\n● %s\n", msg.Content)
 			case "join":
@@ -778,4 +821,62 @@ func httpRequest(method, path string, body interface{}, token string) (map[strin
 	var result map[string]interface{}
 	json.NewDecoder(resp.Body).Decode(&result)
 	return result, nil
+}
+
+func saveDM(msg LocalMessage) {
+	file := getConversationFile(msg.Sender, msg.Recipient)
+
+	var history []LocalMessage
+
+	data, err := os.ReadFile(file)
+	if err == nil {
+		json.Unmarshal(data, &history)
+	}
+
+	history = append(history, msg)
+
+	newData, _ := json.MarshalIndent(history, "", "  ")
+	os.WriteFile(file, newData, 0644)
+}
+
+func loadDMHistory() []LocalMessage {
+	var allMessages []LocalMessage
+
+	files, err := os.ReadDir(".")
+	if err != nil {
+		return allMessages
+	}
+
+	for _, f := range files {
+		name := f.Name()
+
+		if !strings.HasPrefix(name, "dm_") || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+
+		data, err := os.ReadFile(name)
+		if err != nil {
+			continue
+		}
+
+		var history []LocalMessage
+		if err := json.Unmarshal(data, &history); err != nil {
+			continue
+		}
+
+		for _, msg := range history {
+			if msg.Sender == session.Username || msg.Recipient == session.Username {
+				allMessages = append(allMessages, msg)
+			}
+		}
+	}
+
+	return allMessages
+}
+
+func getConversationFile(a, b string) string {
+	if a > b {
+		a, b = b, a
+	}
+	return fmt.Sprintf("dm_%s_%s.json", a, b)
 }

@@ -1,0 +1,9 @@
+[
+  {
+    "type": "dm",
+    "sender": "test0123456",
+    "recipient": "test123456",
+    "content": "hello testdm",
+    "timestamp": "15:52:48"
+  }
+]
