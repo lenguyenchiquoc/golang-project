@@ -1,3 +1,4 @@
+// client.go
 package main
 
 import (
@@ -8,11 +9,13 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -22,6 +25,8 @@ const (
 	UDP_SERVER  = "localhost:9091"
 	WS_SERVER   = "ws://localhost:8080/ws"
 )
+
+// ====================== STRUCTS ======================
 
 type TCPMessage struct {
 	Type    string          `json:"type"`
@@ -45,6 +50,7 @@ type UDPNotification struct {
 }
 
 type WSMessage struct {
+	ID        string `json:"id,omitempty"`
 	Type      string `json:"type"`
 	Sender    string `json:"sender"`
 	Content   string `json:"content"`
@@ -54,14 +60,13 @@ type WSMessage struct {
 }
 
 type Session struct {
-	Token    string
-	UserID   string
-	Username string
-	TCPConn  net.Conn
-	UDPConn  *net.UDPConn
-	WSConn   *websocket.Conn
-	WSRoom   string
-	mu       sync.Mutex
+	Token         string
+	UserID        string
+	Username      string
+	TCPConn       net.Conn
+	UDPConn       *net.UDPConn
+	WSPrivateConn *websocket.Conn
+	mu            sync.Mutex
 }
 
 type ChatClient struct {
@@ -81,18 +86,15 @@ type LocalMessage struct {
 	Timestamp string `json:"timestamp"`
 }
 
-func newChatClient(conn *websocket.Conn, username, room string) *ChatClient {
-	return &ChatClient{
-		conn:     conn,
-		send:     make(chan WSMessage, 10),
-		done:     make(chan struct{}),
-		username: username,
-		room:     room,
-	}
-}
+// ====================== GLOBAL VARIABLES ======================
 
 var session = &Session{}
 var availableRooms = []string{"general", "manga", "gaming"}
+var pendingDM = make(map[string]string)
+var pendingMu sync.Mutex
+var userListChan = make(chan []string)
+
+// ====================== MAIN ======================
 
 func main() {
 	fmt.Println("╔════════════════════════════════════╗")
@@ -109,6 +111,8 @@ func main() {
 		}
 	}
 }
+
+// ====================== AUTH MENU ======================
 
 func showAuthMenu(scanner *bufio.Scanner) {
 	fmt.Println("\n=== LOGIN / REGISTER ===")
@@ -164,10 +168,19 @@ func showMainMenu(scanner *bufio.Scanner) {
 	}
 }
 
+// ====================== CHAT MENU ======================
+
 func chatMenu(scanner *bufio.Scanner) {
 	for {
+		unreadMu.Lock()
+		count := unreadDM
+		unreadMu.Unlock()
 		fmt.Println("\n=== CHAT MENU ===")
-		fmt.Println("1. View DM history")
+		if count > 0 {
+			fmt.Printf("1. View DM history 🔴 %d unread\n", count)
+		} else {
+			fmt.Println("1. View DM history")
+		}
 		fmt.Println("2. Join room")
 		fmt.Println("3. Send DM")
 		fmt.Println("0. Back")
@@ -178,20 +191,10 @@ func chatMenu(scanner *bufio.Scanner) {
 
 		switch choice {
 		case "1":
-			history := loadDMHistory()
-			if len(history) == 0 {
-				fmt.Println("📭 No DM history")
-				return
-			}
-
-			fmt.Println("\n=== DM HISTORY ===")
-			for _, m := range history {
-				if m.Sender == session.Username {
-					fmt.Printf("➡️  To %s [%s]: %s\n", m.Recipient, m.Timestamp, m.Content)
-				} else {
-					fmt.Printf("⬅️  From %s [%s]: %s\n", m.Sender, m.Timestamp, m.Content)
-				}
-			}
+			unreadMu.Lock()
+			unreadDM = 0
+			unreadMu.Unlock()
+			showDMHistory()
 		case "2":
 			joinRoomFlow(scanner)
 		case "3":
@@ -204,12 +207,14 @@ func chatMenu(scanner *bufio.Scanner) {
 	}
 }
 
+// ====================== JOIN ROOM ======================
+
 func joinRoomFlow(scanner *bufio.Scanner) {
 	fmt.Println("\nAvailable rooms:")
 	for i, r := range availableRooms {
 		fmt.Printf("%d. %s\n", i+1, r)
 	}
-	fmt.Print("Select room (number or name): ")
+	fmt.Print("Enter room name or number: ")
 	scanner.Scan()
 	input := strings.TrimSpace(scanner.Text())
 
@@ -218,7 +223,6 @@ func joinRoomFlow(scanner *bufio.Scanner) {
 		return
 	}
 
-	// Chọn theo số hoặc tên
 	room := input
 	for i, r := range availableRooms {
 		if input == fmt.Sprintf("%d", i+1) {
@@ -227,80 +231,54 @@ func joinRoomFlow(scanner *bufio.Scanner) {
 		}
 	}
 
-	url := fmt.Sprintf("%s?username=%s&room=%s", WS_SERVER, session.Username, room)
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	urlStr := fmt.Sprintf("%s?username=%s&userid=%s&room=%s",
+		WS_SERVER, session.Username, session.UserID, room)
+
+	conn, _, err := websocket.DefaultDialer.Dial(urlStr, nil)
 	if err != nil {
-		fmt.Println("❌ Cannot connect:", err)
+		fmt.Printf("❌ Cannot connect to WebSocket: %v\n", err)
 		return
 	}
 
 	client := newChatClient(conn, session.Username, room)
+
+	fmt.Printf("\n=== Joined room: %s ===\n", room)
+	fmt.Println("Commands: /users | /rooms | /switch <room> | /leave | /exit | /help")
+
 	go client.writeLoop()
+	go client.readLoop()
 	roomLoop(scanner, client)
 }
 
 func roomLoop(scanner *bufio.Scanner, client *ChatClient) {
-	go client.readLoop()
-
-	fmt.Printf("\n=== ROOM: %s ===\n", client.room)
-	fmt.Println("Commands:")
-	fmt.Println("  /dm <user> <msg>     → send private message")
-	fmt.Println("  /users               → list users in room")
-	fmt.Println("  /rooms               → list all rooms")
-	fmt.Println("  /switch <room>       → switch room")
-	fmt.Println("  /leave               → leave room (back to chat menu)")
-	fmt.Println("  /exit                → exit chat completely")
-	fmt.Println("  /help                → show commands")
-	fmt.Println("──────────────────────────────────────")
-
 	for {
 		fmt.Printf("[%s] > ", client.room)
 		if !scanner.Scan() {
+			client.close()
 			return
 		}
-		text := strings.TrimSpace(scanner.Text())
 
+		text := strings.TrimSpace(scanner.Text())
 		if text == "" {
 			continue
 		}
 
 		switch {
 		case text == "/help":
-			fmt.Println("  /dm <user> <msg>     → send private message")
-			fmt.Println("  /users               → list users in room")
-			fmt.Println("  /rooms               → list all rooms")
-			fmt.Println("  /switch <room>       → switch room")
-			fmt.Println("  /leave               → leave room (back to chat menu)")
-			fmt.Println("  /exit                → exit chat completely")
+			fmt.Println("  /dm <username> <message>   → Send private message")
+			fmt.Println("  /users                     → List users in current room")
+			fmt.Println("  /rooms                     → List all active rooms")
+			fmt.Println("  /switch <room>             → Switch to another room")
+			fmt.Println("  /leave                     → Leave current room")
+			fmt.Println("  /exit                      → Exit chat completely")
 
-		case text == "/leave":
+		case text == "/leave" || text == "/exit":
 			client.close()
-			fmt.Println("👋 Left room")
-			return
-
-		case text == "/exit":
-			client.close()
-			fmt.Println("👋 Exit chat")
-			return
-
-		case strings.HasPrefix(text, "/dm "):
-			parts := strings.SplitN(text[4:], " ", 2)
-			if len(parts) < 2 {
-				fmt.Println("Usage: /dm <user> <msg>")
-				continue
+			fmt.Println("👋 Left the room")
+			if text == "/exit" {
+				fmt.Println("👋 Exited chat")
 			}
-			client.send <- WSMessage{
-				Type:      "dm",
-				Recipient: parts[0],
-				Content:   parts[1],
-			}
-			saveDM(LocalMessage{
-				Type:      "dm",
-				Sender:    client.username,
-				Recipient: parts[0],
-				Content:   parts[1],
-				Timestamp: time.Now().Format("15:04:05"),
-			})
+			return
 		case text == "/users":
 			client.send <- WSMessage{Type: "list_users"}
 
@@ -308,16 +286,20 @@ func roomLoop(scanner *bufio.Scanner, client *ChatClient) {
 			client.send <- WSMessage{Type: "list_rooms"}
 
 		case strings.HasPrefix(text, "/switch "):
-			room := strings.TrimSpace(text[8:])
-			if room == "" {
+			newRoom := strings.TrimSpace(text[8:])
+			if newRoom == "" {
 				fmt.Println("Usage: /switch <room>")
 				continue
 			}
-			client.room = room
-			client.send <- WSMessage{Type: "join_room", Content: room}
-			fmt.Printf("=== ROOM: %s ===\n", room)
+			client.room = newRoom
+			client.send <- WSMessage{
+				Type:    "join_room",
+				Content: newRoom,
+			}
+			fmt.Printf("=== Switching to room: %s ===\n", newRoom)
 
 		default:
+			// Normal chat message
 			client.send <- WSMessage{
 				Type:    "chat",
 				Content: text,
@@ -326,60 +308,244 @@ func roomLoop(scanner *bufio.Scanner, client *ChatClient) {
 	}
 }
 
+// ====================== SEND DM DIRECTLY ======================
+var lastUserList []string
+
 func sendDMFlow(scanner *bufio.Scanner) {
-	fmt.Print("To (username): ")
+	fmt.Println("1. Choose online user")
+	fmt.Println("2. Enter username manually")
+	fmt.Print("Choice: ")
+
 	scanner.Scan()
-	user := strings.TrimSpace(scanner.Text())
-	if user == "" {
-		fmt.Println("❌ Username cannot be empty")
+	choice := strings.TrimSpace(scanner.Text())
+
+	var recipient string
+
+	switch choice {
+
+	case "1":
+		if session.WSPrivateConn == nil {
+			fmt.Println("❌ Not connected to chat server")
+			return
+		}
+
+		// request server
+		session.WSPrivateConn.WriteMessage(
+			websocket.TextMessage,
+			[]byte(`{"type":"list_all_users"}`),
+		)
+
+		// ⬇️ CHỜ RESPONSE
+		var users []string
+
+		select {
+		case users = <-userListChan:
+		case <-time.After(2 * time.Second):
+			fmt.Println("❌ Timeout getting user list")
+			return
+		}
+
+		if len(users) == 0 {
+			fmt.Println("❌ No users online")
+			return
+		}
+
+		fmt.Println("\n=== ONLINE USERS ===")
+		for i, u := range users {
+			fmt.Printf("%d. %s\n", i+1, u)
+		}
+
+		fmt.Print("Select user: ")
+		scanner.Scan()
+
+		var idx int
+		fmt.Sscanf(scanner.Text(), "%d", &idx)
+
+		if idx < 1 || idx > len(users) {
+			fmt.Println("❌ Invalid choice")
+			return
+		}
+
+		recipient = users[idx-1]
+
+	case "2":
+		fmt.Print("To (username): ")
+		scanner.Scan()
+		recipient = strings.TrimSpace(scanner.Text())
+
+		if recipient == "" {
+			fmt.Println("❌ Username cannot be empty")
+			return
+		}
+
+	default:
+		fmt.Println("❌ Invalid choice")
 		return
 	}
 
+	// ================= SEND =================
+
 	fmt.Print("Message: ")
 	scanner.Scan()
-	msg := strings.TrimSpace(scanner.Text())
-	if msg == "" {
+	msgContent := strings.TrimSpace(scanner.Text())
+	if msgContent == "" {
 		fmt.Println("❌ Message cannot be empty")
 		return
 	}
 
-	url := fmt.Sprintf("%s?username=%s&room=general", WS_SERVER, session.Username)
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
-	if err != nil {
-		fmt.Println("❌ Cannot connect to chat server")
-		return
-	}
-	defer conn.Close()
+	msgID := uuid.New().String()
 
-	time.Sleep(300 * time.Millisecond)
+	pendingMu.Lock()
+	pendingDM[msgID] = "sending"
+	pendingMu.Unlock()
 
 	data, _ := json.Marshal(WSMessage{
+		ID:        msgID,
 		Type:      "dm",
-		Recipient: user,
-		Content:   msg,
+		Recipient: recipient,
+		Content:   msgContent,
 	})
-	conn.WriteMessage(websocket.TextMessage, data)
 
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, raw, err := conn.ReadMessage()
-	if err == nil {
-		var resp WSMessage
-		if json.Unmarshal(raw, &resp) == nil && resp.Type == "error" {
-			fmt.Println("❌", resp.Content)
+	err := session.WSPrivateConn.WriteMessage(websocket.TextMessage, data)
+	if err != nil {
+		fmt.Println("❌ Failed to send DM")
+		return
+	}
+
+	fmt.Printf("📨 Sending DM to %s...\n", recipient)
+}
+
+// ====================== CHAT CLIENT ======================
+
+func newChatClient(conn *websocket.Conn, username, room string) *ChatClient {
+	c := &ChatClient{
+		conn:     conn,
+		send:     make(chan WSMessage, 32),
+		done:     make(chan struct{}),
+		username: username,
+		room:     room,
+	}
+
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					return
+				}
+			case <-c.done:
+				return
+			}
+		}
+	}()
+
+	return c
+}
+
+var unreadDM int
+var unreadMu sync.Mutex
+
+func (c *ChatClient) readLoop() {
+	defer c.close()
+
+	for {
+		c.conn.SetPongHandler(func(string) error {
+			c.conn.SetReadDeadline(time.Now().Add(70 * time.Second))
+			return nil
+		})
+		_, rawMsg, err := c.conn.ReadMessage()
+		if err != nil {
+			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				fmt.Println("\n❌ Disconnected from chat server")
+			}
+			return
+		}
+
+		var msg WSMessage
+		if err := json.Unmarshal(rawMsg, &msg); err != nil {
+			continue
+		}
+
+		switch msg.Type {
+		case "chat":
+			fmt.Printf("\n💬 [%s] %s: %s\n", msg.Timestamp, msg.Sender, msg.Content)
+		case "dm":
+			fmt.Printf("\n📩 [DM] %s: %s\n", msg.Sender, msg.Content)
+			unreadMu.Lock()
+			unreadDM++
+			unreadMu.Unlock()
+		case "system":
+			fmt.Printf("\n● %s\n", msg.Content)
+		case "join":
+			fmt.Printf("\n👋 %s joined the room\n", msg.Sender)
+		case "leave":
+			fmt.Printf("\n👋 %s left the room\n", msg.Sender)
+		case "list_rooms":
+			fmt.Printf("\n📦 Active rooms: %s\n", msg.Content)
+		case "user_list":
+			fmt.Printf("\n👥 Users in room: %s\n", msg.Content)
+		case "error":
+			fmt.Printf("\n❌ %s\n", msg.Content)
+		}
+
+		fmt.Printf("[%s] > ", c.room)
+	}
+}
+
+func (c *ChatClient) writeLoop() {
+	defer c.close()
+
+	for {
+		select {
+		case msg := <-c.send:
+			data, err := json.Marshal(msg)
+			if err != nil {
+				continue
+			}
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := c.conn.WriteMessage(websocket.TextMessage, data); err != nil {
+				fmt.Println("\n❌ Failed to send message")
+				return
+			}
+		case <-c.done:
 			return
 		}
 	}
+}
 
-	fmt.Printf("✅ DM sent to %s\n", user)
-
-	saveDM(LocalMessage{
-		Type:      "dm",
-		Sender:    session.Username,
-		Recipient: user,
-		Content:   msg,
-		Timestamp: time.Now().Format("15:04:05"),
+func (c *ChatClient) close() {
+	c.closeOnce.Do(func() {
+		close(c.done)
+		if c.conn != nil {
+			c.conn.Close()
+		}
 	})
 }
+
+// ====================== DM HISTORY ======================
+
+func showDMHistory() {
+	history := loadDMHistory()
+	if len(history) == 0 {
+		fmt.Println("📭 No DM history found")
+		return
+	}
+
+	fmt.Println("\n=== DM HISTORY ===")
+	for _, m := range history {
+		if m.Sender == session.Username {
+			fmt.Printf("➡️  To %s [%s]: %s\n", m.Recipient, m.Timestamp, m.Content)
+		} else {
+			fmt.Printf("⬅️  From %s [%s]: %s\n", m.Sender, m.Timestamp, m.Content)
+		}
+	}
+}
+
+// ====================== AUTH FUNCTIONS ======================
 
 func doRegister(scanner *bufio.Scanner) {
 	fmt.Print("Username: ")
@@ -446,12 +612,14 @@ func doLogin(scanner *bufio.Scanner) {
 
 		go doConnectTCP()
 		go doRegisterUDP()
-	} else {
-		fmt.Println("❌", resp["error"])
+		go doListenWS()
+	} else if errMsg, ok := resp["error"]; ok {
+		fmt.Println("❌", errMsg)
 	}
 }
 
 func doLogout() {
+	session.mu.Lock()
 	if session.TCPConn != nil {
 		session.TCPConn.Close()
 	}
@@ -459,19 +627,21 @@ func doLogout() {
 		doUnregisterUDP()
 		session.UDPConn.Close()
 	}
-	if session.WSConn != nil {
-		session.WSConn.Close()
-	}
+	session.mu.Unlock()
+
+	fmt.Println("✅ Logged out successfully!")
 	session = &Session{}
-	fmt.Println("✅ Logged out!")
 }
+
+// ====================== MANGA FUNCTIONS ======================
 
 func doSearchManga(scanner *bufio.Scanner) {
 	fmt.Print("Enter manga name or author: ")
 	scanner.Scan()
 	query := strings.TrimSpace(scanner.Text())
+	encodedQuery := url.QueryEscape(query)
 
-	resp, err := httpGet("/manga?query="+query, session.Token)
+	resp, err := httpGet("/manga?query="+encodedQuery, session.Token)
 	if err != nil {
 		fmt.Println("❌ Error:", err)
 		return
@@ -601,6 +771,8 @@ func doUpdateProgress(scanner *bufio.Scanner) {
 	}
 }
 
+// ====================== NETWORK FUNCTIONS ======================
+
 func doConnectTCP() {
 	if session.TCPConn != nil {
 		return
@@ -708,80 +880,7 @@ func doUnregisterUDP() {
 	session.UDPConn.Write(data)
 }
 
-func (c *ChatClient) readLoop() {
-	for {
-		select {
-		case <-c.done:
-			return
-		default:
-			_, rawMsg, err := c.conn.ReadMessage()
-			if err != nil {
-				fmt.Println("\n❌ Disconnected from chat")
-				c.close()
-				return
-			}
-
-			var msg WSMessage
-			if err := json.Unmarshal(rawMsg, &msg); err != nil {
-				continue
-			}
-
-			switch msg.Type {
-			case "chat":
-				fmt.Printf("\n💬 [%s] %s: %s\n", msg.Timestamp, msg.Sender, msg.Content)
-			case "dm":
-				fmt.Printf("\n📩 [DM][%s] %s: %s\n", msg.Timestamp, msg.Sender, msg.Content)
-
-				saveDM(LocalMessage{
-					Type:      "dm",
-					Sender:    msg.Sender,
-					Recipient: c.username,
-					Content:   msg.Content,
-					Timestamp: msg.Timestamp,
-				})
-			case "system":
-				fmt.Printf("\n● %s\n", msg.Content)
-			case "join":
-				fmt.Printf("\n👋 %s joined\n", msg.Sender)
-			case "leave":
-				fmt.Printf("\n👋 %s left\n", msg.Sender)
-			case "list_rooms":
-				fmt.Printf("\n📦 Rooms: %s\n", msg.Content)
-			case "user_list":
-				fmt.Printf("\n👥 Users: %s\n", msg.Content)
-			case "error":
-				fmt.Printf("\n❌ %s\n", msg.Content)
-			}
-
-			fmt.Printf("[%s] > ", c.room)
-		}
-	}
-}
-
-func (c *ChatClient) writeLoop() {
-	for {
-		select {
-		case msg := <-c.send:
-			data, _ := json.Marshal(msg)
-			err := c.conn.WriteMessage(websocket.TextMessage, data)
-			if err != nil {
-				fmt.Println("\n❌ Send failed")
-				c.close()
-				return
-			}
-		case <-c.done:
-			return
-		}
-	}
-}
-
-func (c *ChatClient) close() {
-	c.closeOnce.Do(func() {
-		close(c.done)
-		c.conn.Close()
-	})
-}
-
+// HTTP Helpers
 func httpPost(path string, body interface{}, token string) (map[string]interface{}, error) {
 	return httpRequest("POST", path, body, token)
 }
@@ -823,11 +922,12 @@ func httpRequest(method, path string, body interface{}, token string) (map[strin
 	return result, nil
 }
 
+// ====================== DM STORAGE ======================
+
 func saveDM(msg LocalMessage) {
 	file := getConversationFile(msg.Sender, msg.Recipient)
 
 	var history []LocalMessage
-
 	data, err := os.ReadFile(file)
 	if err == nil {
 		json.Unmarshal(data, &history)
@@ -841,7 +941,6 @@ func saveDM(msg LocalMessage) {
 
 func loadDMHistory() []LocalMessage {
 	var allMessages []LocalMessage
-
 	files, err := os.ReadDir(".")
 	if err != nil {
 		return allMessages
@@ -849,7 +948,6 @@ func loadDMHistory() []LocalMessage {
 
 	for _, f := range files {
 		name := f.Name()
-
 		if !strings.HasPrefix(name, "dm_") || !strings.HasSuffix(name, ".json") {
 			continue
 		}
@@ -870,7 +968,6 @@ func loadDMHistory() []LocalMessage {
 			}
 		}
 	}
-
 	return allMessages
 }
 
@@ -879,4 +976,71 @@ func getConversationFile(a, b string) string {
 		a, b = b, a
 	}
 	return fmt.Sprintf("dm_%s_%s.json", a, b)
+}
+
+func doListenWS() {
+	privateRoom := "private_" + session.UserID
+	wsURL := fmt.Sprintf("%s?username=%s&userid=%s&room=%s",
+		WS_SERVER, session.Username, session.UserID, privateRoom)
+
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		return
+	}
+
+	session.WSPrivateConn = conn
+
+	go func() {
+		for {
+			_, raw, err := conn.ReadMessage()
+			if err != nil {
+				session.WSPrivateConn = nil
+				return
+			}
+
+			var msg WSMessage
+			if json.Unmarshal(raw, &msg) != nil {
+				continue
+			}
+
+			switch msg.Type {
+			case "dm":
+				saveDM(LocalMessage{
+					Type:      "dm",
+					Sender:    msg.Sender,
+					Recipient: session.Username,
+					Content:   msg.Content,
+					Timestamp: msg.Timestamp,
+				})
+				unreadMu.Lock()
+				unreadDM++
+				unreadMu.Unlock()
+
+			case "error":
+				fmt.Printf("\n❌ DM error: %s\n", msg.Content)
+				fmt.Print("Choice: ")
+
+			case "dm_ack":
+				pendingMu.Lock()
+				_, exists := pendingDM[msg.ID]
+				if exists {
+					delete(pendingDM, msg.ID)
+				}
+				pendingMu.Unlock()
+
+				if msg.Content == "delivered" {
+					fmt.Println("\n✅ DM delivered")
+				} else {
+					fmt.Println("\n❌ DM failed")
+				}
+				fmt.Print("Choice: ")
+
+			case "list_all_users":
+				users := strings.Split(msg.Content, ", ")
+				userListChan <- users
+
+			}
+		}
+	}()
+
 }
