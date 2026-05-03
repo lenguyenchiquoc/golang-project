@@ -1,98 +1,108 @@
 package manga
- 
+
 import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"managahub/pkg/models"
 	"strings"
 	"time"
-	"managahub/pkg/models"
+
+	"github.com/google/uuid"
 )
- 
+
 type MangaService struct {
 	DB *sql.DB
 }
- 
+
 func NewMangaService(db *sql.DB) *MangaService {
 	return &MangaService{DB: db}
 }
 
-func (m *MangaService) CreateManga(request models.CreateMangaRequest) (*models.Manga, error) {
-	var count int
-
-	query := "Select count(*) from manga where title = ? and author = ?"
-	err := m.DB.QueryRow(query, request.Title, request.Author).Scan(&count)
+func (m *MangaService) CreateManga(req models.CreateMangaRequest) (*models.Manga, error) {
+	tx, err := m.DB.Begin()
 	if err != nil {
-		return nil, errors.New("Databases error")
-	}
-	if count > 0 {
-		return nil, errors.New("Manga already exist")
+		return nil, err
 	}
 
-	if request.Status == "" {
-		request.Status = "ongoing"
-	}
+	mangaID := generateMangaID()
 
-	if request.Cover_url == "" {
-		request.Cover_url = ""
-	}
-
-	mangaId := generateMangaID()
-	query1 := `INSERT INTO manga (id,title, author, genres, status, total_chapters, description, cover_url)
-	          VALUES (?,?, ?, ?, ?, ?, ?,?)`
-	_, err = m.DB.Exec(query1,
-		mangaId,
-		request.Title,
-		request.Author,
-		request.Genres,
-		request.Status,
-		request.TotalChapters,
-		request.Description,
-		request.Cover_url,
+	_, err = tx.Exec(`
+		INSERT INTO manga (id, title, author, status, total_chapters, description, cover_url)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		mangaID,
+		req.Title,
+		req.Author,
+		req.Status,
+		req.TotalChapters,
+		req.Description,
+		req.Cover_url,
 	)
 	if err != nil {
-		return nil, errors.New("Can not add" + err.Error())
+		tx.Rollback()
+		return nil, err
+	}
+	for _, g := range req.Genres {
+		var genreID string
+
+		err := tx.QueryRow(`SELECT id FROM genres WHERE name = ?`, g).Scan(&genreID)
+
+		if err == sql.ErrNoRows {
+			genreID = uuid.New().String()
+			_, err = tx.Exec(`INSERT INTO genres (id, name) VALUES (?, ?)`, genreID, g)
+			if err != nil {
+				tx.Rollback()
+				return nil, err
+			}
+		}
+		_, err = tx.Exec(`
+			INSERT INTO manga_genres (manga_id, genre_id)
+			VALUES (?, ?)`,
+			mangaID, genreID,
+		)
+		if err != nil {
+			tx.Rollback()
+			return nil, err
+		}
 	}
 
-	return &models.Manga{
-		ID:            mangaId,
-		Title:         request.Title,
-		Author:        request.Author,
-		Genres:        request.Genres,
-		Status:        request.Status,
-		TotalChapters: request.TotalChapters,
-		Description:   request.Description,
-		Cover_url: request.Cover_url,
-	}, nil
+	tx.Commit()
 
+	return &models.Manga{
+		ID:     mangaID,
+		Title:  req.Title,
+		Author: req.Author,
+	}, nil
 }
 
 func generateMangaID() string {
-    return fmt.Sprintf("manga_%d", time.Now().UnixNano())
+	return fmt.Sprintf("manga_%d", time.Now().UnixNano())
 }
 
-func (m *MangaService) SearchManga(request models.SearchMangaRequest) ([]models.Manga, error) {
-	if request.Page <= 0 {
-		request.Page = 1
+func (m *MangaService) SearchManga(req models.SearchMangaRequest) ([]models.Manga, error) {
+	if req.Page <= 0 {
+		req.Page = 1
 	}
-	if request.Limit <= 0 {
-		request.Limit = 10
+	if req.Limit <= 0 {
+		req.Limit = 10
 	}
 
 	conditions := []string{}
 	args := []interface{}{}
 
-	if request.Query != "" {
-		conditions = append(conditions, "(title LIKE ? OR author LIKE ?)")
-		args = append(args, "%"+request.Query+"%", "%"+request.Query+"%")
+	if req.Query != "" {
+		conditions = append(conditions, "(m.title LIKE ? OR m.author LIKE ?)")
+		args = append(args, "%"+req.Query+"%", "%"+req.Query+"%")
 	}
-	if request.Genre != "" {
-		conditions = append(conditions, "genres LIKE ?")
-		args = append(args, "%"+request.Genre+"%")
+
+	if req.Genre != "" {
+		conditions = append(conditions, "g.name = ?")
+		args = append(args, req.Genre)
 	}
-	if request.Status != "" {
-		conditions = append(conditions, "status = ?")
-		args = append(args, request.Status)
+
+	if req.Status != "" {
+		conditions = append(conditions, "m.status = ?")
+		args = append(args, req.Status)
 	}
 
 	whereClause := ""
@@ -100,63 +110,95 @@ func (m *MangaService) SearchManga(request models.SearchMangaRequest) ([]models.
 		whereClause = "WHERE " + strings.Join(conditions, " AND ")
 	}
 
-	offset := (request.Page - 1) * request.Limit
+	offset := (req.Page - 1) * req.Limit
+
 	query := fmt.Sprintf(`
-		SELECT id, title, author, genres, status, total_chapters, description, cover_url
-		FROM manga %s
-		ORDER BY title ASC
+		SELECT DISTINCT m.id, m.title, m.author, m.status, m.total_chapters, m.description, m.cover_url
+		FROM manga m
+		LEFT JOIN manga_genres mg ON m.id = mg.manga_id
+		LEFT JOIN genres g ON mg.genre_id = g.id
+		%s
+		ORDER BY m.title ASC
 		LIMIT ? OFFSET ?`, whereClause)
 
-	args = append(args, request.Limit, offset)
+	args = append(args, req.Limit, offset)
+
 	rows, err := m.DB.Query(query, args...)
 	if err != nil {
-		return nil, errors.New("Error search" + err.Error())
+		return nil, err
 	}
 	defer rows.Close()
 
-	mangas := []models.Manga{}
+	var mangas []models.Manga
+
 	for rows.Next() {
 		var manga models.Manga
 		err := rows.Scan(
 			&manga.ID,
 			&manga.Title,
 			&manga.Author,
-			&manga.Genres,
 			&manga.Status,
 			&manga.TotalChapters,
 			&manga.Description,
 			&manga.Cover_url,
 		)
 		if err != nil {
-			return nil, errors.New("Error" + err.Error())
+			return nil, err
 		}
+
+		manga.Genres = m.getGenresByMangaID(manga.ID)
+
 		mangas = append(mangas, manga)
 	}
 
 	return mangas, nil
 }
-
 func (s *MangaService) GetMangaByID(id string) (*models.Manga, error) {
 	var m models.Manga
-	query := `SELECT id, title, author, genres, status, total_chapters, description, cover_url
-	          FROM manga WHERE id = ?`
- 
-	err := s.DB.QueryRow(query, id).Scan(
+
+	err := s.DB.QueryRow(`
+		SELECT id, title, author, status, total_chapters, description, cover_url
+		FROM manga WHERE id = ?`, id,
+	).Scan(
 		&m.ID,
 		&m.Title,
 		&m.Author,
-		&m.Genres,
 		&m.Status,
 		&m.TotalChapters,
 		&m.Description,
 		&m.Cover_url,
 	)
+
 	if err == sql.ErrNoRows {
-		return nil, errors.New("Can not find Manga")
+		return nil, errors.New("not found")
 	}
 	if err != nil {
-		return nil, errors.New("Error database" + err.Error())
+		return nil, err
 	}
- 
+
+	m.Genres = s.getGenresByMangaID(id)
+
 	return &m, nil
+}
+
+func (s *MangaService) getGenresByMangaID(mangaID string) []models.Genre {
+	rows, err := s.DB.Query(`
+		SELECT g.id, g.name
+		FROM genres g
+		JOIN manga_genres mg ON g.id = mg.genre_id
+		WHERE mg.manga_id = ?`, mangaID)
+
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var genres []models.Genre
+	for rows.Next() {
+		var g models.Genre
+		rows.Scan(&g.ID, &g.Name)
+		genres = append(genres, g)
+	}
+
+	return genres
 }

@@ -648,11 +648,19 @@ func doLogout() {
 var grpcClient *grpcserver.MangaGRPCClient
 
 func doSearchManga(scanner *bufio.Scanner) {
+	fmt.Print("Results per page (default 10): ")
+	scanner.Scan()
+	limitStr := strings.TrimSpace(scanner.Text())
+
+	limit := int32(10)
+	if limitStr != "" {
+		fmt.Sscanf(limitStr, "%d", &limit)
+	}
     fmt.Print("Enter manga name or author: ")
     scanner.Scan()
     query := strings.TrimSpace(scanner.Text())
 
-    resp, err := grpcClient.SearchManga(query, "", "", 1, 10)
+    resp, err := grpcClient.SearchManga(query, "", "", 1, limit)
     if err != nil {
         fmt.Println("❌ Error:", err)
         return

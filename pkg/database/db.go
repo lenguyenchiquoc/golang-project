@@ -25,22 +25,36 @@ func InitDB(filepath string) *sql.DB {
 func createTables(db *sql.DB) {
 	query := `
 	CREATE TABLE IF NOT EXISTS users (
-		id           TEXT PRIMARY KEY,
-		username     TEXT UNIQUE NOT NULL,
-		email        TEXT UNIQUE NOT NULL,
+		id            TEXT PRIMARY KEY,
+		username      TEXT UNIQUE NOT NULL,
+		email         TEXT UNIQUE NOT NULL,
 		password_hash TEXT NOT NULL,
-		created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 
 	CREATE TABLE IF NOT EXISTS manga (
 		id             TEXT PRIMARY KEY,
 		title          TEXT NOT NULL,
 		author         TEXT,
-		genres         TEXT,
 		status         TEXT,
 		total_chapters INTEGER,
 		description    TEXT,
-		cover_url 	   TEXT
+		cover_url      TEXT,
+		average_rating REAL    DEFAULT 0,
+		rating_avg   INTEGER DEFAULT 0
+	);
+
+	CREATE TABLE IF NOT EXISTS genres (
+		id   TEXT PRIMARY KEY,
+		name TEXT UNIQUE NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS manga_genres (	
+		manga_id TEXT,
+		genre_id TEXT,
+		PRIMARY KEY (manga_id, genre_id),
+		FOREIGN KEY (manga_id) REFERENCES manga(id),
+		FOREIGN KEY (genre_id) REFERENCES genres(id)
 	);
 
 	CREATE TABLE IF NOT EXISTS user_progress (
@@ -50,12 +64,22 @@ func createTables(db *sql.DB) {
 		status          TEXT DEFAULT 'reading',
 		updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		PRIMARY KEY (user_id, manga_id),
-		FOREIGN KEY (user_id) REFERENCES users(id),
+		FOREIGN KEY (user_id)  REFERENCES users(id),
+		FOREIGN KEY (manga_id) REFERENCES manga(id)
+	);
+
+	CREATE TABLE IF NOT EXISTS user_ratings (
+		user_id    TEXT,
+		manga_id   TEXT,
+		rating     INTEGER CHECK(rating >= 1 AND rating <= 10),
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (user_id, manga_id),
+		FOREIGN KEY (user_id)  REFERENCES users(id),
 		FOREIGN KEY (manga_id) REFERENCES manga(id)
 	);`
 
 	_, err := db.Exec(query)
 	if err != nil {
-		log.Fatal("Can not create table", err)
+		log.Fatal("Can not create table:", err)
 	}
 }
