@@ -33,7 +33,6 @@ func Run(tcpServer *tcp.ProgressSyncServer, udpServer *udp.NotificationServer, w
 	{
 		public.POST("/register", authHandler.Register)
 		public.POST("/login", authHandler.Login)
-		public.POST("/logout", authHandler.Logout)
 	}
 
 	r.GET("/manga", mangaHandler.SearchManga)
@@ -44,6 +43,8 @@ func Run(tcpServer *tcp.ProgressSyncServer, udpServer *udp.NotificationServer, w
 	protected := r.Group("/")
 	protected.Use(auth.JWTMiddleware(authService))
 	{
+
+		protected.POST("/auth/logout", authHandler.Logout)
 		protected.GET("/me", func(c *gin.Context) {
 			userID, _ := c.Get("user_id")
 			username, _ := c.Get("username")

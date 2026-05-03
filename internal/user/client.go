@@ -272,13 +272,16 @@ func roomLoop(scanner *bufio.Scanner, client *ChatClient) {
 			fmt.Println("  /leave                     → Leave current room")
 			fmt.Println("  /exit                      → Exit chat completely")
 
-		case text == "/leave" || text == "/exit":
+		case text == "/leave":
 			client.close()
 			fmt.Println("👋 Left the room")
-			if text == "/exit" {
-				fmt.Println("👋 Exited chat")
-			}
 			return
+
+		case text == "/exit":
+			client.close()
+			fmt.Println("👋 Exited chat")
+			os.Exit(0)
+
 		case text == "/users":
 			client.send <- WSMessage{Type: "list_users"}
 
@@ -620,12 +623,20 @@ func doLogin(scanner *bufio.Scanner) {
 
 func doLogout() {
 	session.mu.Lock()
+
+	_, err := httpPost("/auth/logout", nil, session.Token)
+	if err != nil {
+		fmt.Println("❌ Logout API failed:", err)
+	}
 	if session.TCPConn != nil {
 		session.TCPConn.Close()
 	}
 	if session.UDPConn != nil {
 		doUnregisterUDP()
 		session.UDPConn.Close()
+	}
+	if session.WSPrivateConn != nil {
+		session.WSPrivateConn.Close()
 	}
 	session.mu.Unlock()
 
