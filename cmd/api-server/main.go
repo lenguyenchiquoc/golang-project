@@ -24,7 +24,7 @@ func Run(tcpServer *tcp.ProgressSyncServer, udpServer *udp.NotificationServer, w
 	libraryService := library.NewLibraryService(db, tcpServer)
 
 	authHandler := auth.NewAuthHandler(authService)
-	mangaHandler := manga.NewMangaHandler(mangaService, grpcClient)
+	mangaHandler := manga.NewMangaHandler(mangaService)
 	libraryHandler := library.NewLibraryHandler(libraryService, grpcClient)
 	notifyHandler := udp.NewNotificationHandler(udpServer)
 	r := gin.Default()

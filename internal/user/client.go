@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	grpcserver "managahub/internal/grpc"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -612,7 +612,7 @@ func doLogin(scanner *bufio.Scanner) {
 		session.UserID = resp["user_id"].(string)
 		session.Username = resp["username"].(string)
 		fmt.Printf("✅ Login successful! Welcome %s\n", session.Username)
-
+		grpcClient = grpcserver.NewMangaGRPCClient("localhost:9092")
 		go doConnectTCP()
 		go doRegisterUDP()
 		go doListenWS()
@@ -645,34 +645,32 @@ func doLogout() {
 }
 
 // ====================== MANGA FUNCTIONS ======================
+var grpcClient *grpcserver.MangaGRPCClient
 
 func doSearchManga(scanner *bufio.Scanner) {
-	fmt.Print("Enter manga name or author: ")
-	scanner.Scan()
-	query := strings.TrimSpace(scanner.Text())
-	encodedQuery := url.QueryEscape(query)
+    fmt.Print("Enter manga name or author: ")
+    scanner.Scan()
+    query := strings.TrimSpace(scanner.Text())
 
-	resp, err := httpGet("/manga?query="+encodedQuery, session.Token)
-	if err != nil {
-		fmt.Println("❌ Error:", err)
-		return
-	}
+    resp, err := grpcClient.SearchManga(query, "", "", 1, 10)
+    if err != nil {
+        fmt.Println("❌ Error:", err)
+        return
+    }
 
-	results, ok := resp["results"].([]interface{})
-	if !ok || len(results) == 0 {
-		fmt.Println("No results found!")
-		return
-	}
+    if len(resp.Mangas) == 0 {
+        fmt.Println("No results found!")
+        return
+    }
 
-	fmt.Printf("\n📚 Found %v results:\n", resp["total"])
-	fmt.Println("─────────────────────────────────────────────────────")
-	for i, r := range results {
-		m := r.(map[string]interface{})
-		fmt.Printf("%d. [%s] %s - %s (%v chapters) [%s]\n",
-			i+1, m["id"], m["title"], m["author"], m["total_chapters"], m["status"],
-		)
-	}
-	fmt.Println("─────────────────────────────────────────────────────")
+    fmt.Printf("\n📚 Found %d results:\n", resp.Total)
+    fmt.Println("─────────────────────────────────────────────────────")
+    for i, m := range resp.Mangas {
+        fmt.Printf("%d. [%s] %s - %s (%d chapters) [%s]\n",
+            i+1, m.Id, m.Title, m.Author, m.TotalChapters, m.Status,
+        )
+    }
+    fmt.Println("─────────────────────────────────────────────────────")
 }
 
 func doGetLibrary() {
