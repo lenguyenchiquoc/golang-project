@@ -7,7 +7,7 @@ import (
 	"log"
 	"net"
 
-	pb "managahub/pkg/proto"
+	pb "managahub/pkg/proto/managahub/pkg/proto"
 
 	"google.golang.org/grpc"
 )
@@ -29,7 +29,7 @@ func (s *MangaGRPCServer) GetManga(ctx context.Context, req *pb.GetMangaRequest)
 	rows, err := s.DB.QueryContext(ctx, `
 		SELECT 
 			m.id, m.title, m.author, m.status, m.total_chapters, m.description, m.cover_url,
-			g.id, g.name
+			g.id, g.name, m.average_rating, m.rating_count
 		FROM manga m
 		LEFT JOIN manga_genres mg ON m.id = mg.manga_id
 		LEFT JOIN genres g ON mg.genre_id = g.id
@@ -47,7 +47,8 @@ func (s *MangaGRPCServer) GetManga(ctx context.Context, req *pb.GetMangaRequest)
 		var m pb.MangaResponse
 		var gID sql.NullString
 		var gName sql.NullString
-
+		var avg float32
+		var count int32
 		err := rows.Scan(
 			&m.Id,
 			&m.Title,
@@ -58,6 +59,8 @@ func (s *MangaGRPCServer) GetManga(ctx context.Context, req *pb.GetMangaRequest)
 			&m.CoverUrl,
 			&gID,
 			&gName,
+			&avg,
+			&count,
 		)
 		if err != nil {
 			return nil, err
@@ -65,6 +68,8 @@ func (s *MangaGRPCServer) GetManga(ctx context.Context, req *pb.GetMangaRequest)
 
 		if manga == nil {
 			manga = &m
+			manga.AverageRating = avg
+			manga.RatingCount = count
 		}
 
 		if gID.Valid {
@@ -103,13 +108,11 @@ func (s *MangaGRPCServer) SearchManga(ctx context.Context, req *pb.SearchRequest
 
 	args := []interface{}{}
 
-	// 🔍 search theo title / author
 	if req.Query != "" {
 		query += " AND (m.title LIKE ? OR m.author LIKE ?)"
 		args = append(args, "%"+req.Query+"%", "%"+req.Query+"%")
 	}
 
-	// 🔍 filter nhiều genre
 	if len(req.Genre) > 0 {
 		query += " AND g.name IN ("
 		for i := range req.Genre {
@@ -122,7 +125,6 @@ func (s *MangaGRPCServer) SearchManga(ctx context.Context, req *pb.SearchRequest
 		query += ")"
 	}
 
-	// 🔍 filter status
 	if req.Status != "" {
 		query += " AND m.status = ?"
 		args = append(args, req.Status)

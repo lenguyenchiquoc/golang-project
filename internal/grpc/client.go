@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	pb "managahub/pkg/proto"
+	pb "managahub/pkg/proto/managahub/pkg/proto"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

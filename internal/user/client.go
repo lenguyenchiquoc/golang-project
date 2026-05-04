@@ -656,29 +656,132 @@ func doSearchManga(scanner *bufio.Scanner) {
 	if limitStr != "" {
 		fmt.Sscanf(limitStr, "%d", &limit)
 	}
-    fmt.Print("Enter manga name or author: ")
-    scanner.Scan()
-    query := strings.TrimSpace(scanner.Text())
 
-    resp, err := grpcClient.SearchManga(query, []string{}, "", 1, limit)
-    if err != nil {
-        fmt.Println("❌ Error:", err)
-        return
-    }
+	// query
+	fmt.Print("Enter manga name or author: ")
+	scanner.Scan()
+	query := strings.TrimSpace(scanner.Text())
 
-    if len(resp.Mangas) == 0 {
-        fmt.Println("No results found!")
-        return
-    }
+	// genre (multi)
+	fmt.Print("Enter genres (comma separated, optional): ")
+	scanner.Scan()
+	genreInput := strings.TrimSpace(scanner.Text())
 
-    fmt.Printf("\n📚 Found %d results:\n", resp.Total)
-    fmt.Println("─────────────────────────────────────────────────────")
-    for i, m := range resp.Mangas {
-        fmt.Printf("%d. [%s] %s - %s (%d chapters) [%s]\n",
-            i+1, m.Id, m.Title, m.Author, m.TotalChapters, m.Status,
-        )
-    }
-    fmt.Println("─────────────────────────────────────────────────────")
+	var genres []string
+	if genreInput != "" {
+		for _, g := range strings.Split(genreInput, ",") {
+			genres = append(genres, strings.TrimSpace(g))
+		}
+	}
+
+	// status
+	fmt.Print("Enter status (ongoing/completed, optional): ")
+	scanner.Scan()
+	status := strings.TrimSpace(scanner.Text())
+
+	resp, err := grpcClient.SearchManga(query, genres, status, 1, limit)
+	if err != nil {
+		fmt.Println("❌ Error:", err)
+		return
+	}
+
+	if len(resp.Mangas) == 0 {
+		fmt.Println("No results found!")
+		return
+	}
+
+	fmt.Printf("\n📚 Found %d results:\n", resp.Total)
+	fmt.Println("─────────────────────────────────────────────────────")
+
+	for i, m := range resp.Mangas {
+		fmt.Printf("%d. [%s] %s - %s (%d chapters) [%s]\n",
+			i+1, m.Id, m.Title, m.Author, m.TotalChapters, m.Status,
+		)
+
+		// in genres
+		if len(m.Genres) > 0 {
+			fmt.Print("   Genres: ")
+			for j, g := range m.Genres {
+				fmt.Print(g.Name)
+				if j < len(m.Genres)-1 {
+					fmt.Print(", ")
+				}
+			}
+			fmt.Println()
+		}
+	}
+
+	fmt.Println("─────────────────────────────────────────────────────")
+
+	fmt.Print("Choose manga (number, 0 to cancel): ")
+	scanner.Scan()
+	var choice int
+	fmt.Sscanf(scanner.Text(), "%d", &choice)
+
+	if choice <= 0 || choice > len(resp.Mangas) {
+		fmt.Println("❌ Cancel")
+		return
+	}
+
+	selected := resp.Mangas[choice-1]
+
+	viewMangaDetailAndRate(scanner, selected.Id)
+}
+
+func viewMangaDetailAndRate(scanner *bufio.Scanner, mangaID string) {
+	m, err := grpcClient.GetManga(mangaID)
+	if err != nil {
+		fmt.Println("❌ Error:", err)
+		return
+	}
+
+	// 👉 show detail
+	fmt.Println("\n📖 Manga Detail")
+	fmt.Println("────────────────────────────────────────")
+	fmt.Println("Title:", m.Title)
+	fmt.Println("Author:", m.Author)
+	fmt.Println("Status:", m.Status)
+	fmt.Println("Chapters:", m.TotalChapters)
+
+	// genres
+	fmt.Print("Genres: ")
+	for i, g := range m.Genres {
+		fmt.Print(g.Name)
+		if i < len(m.Genres)-1 {
+			fmt.Print(", ")
+		}
+	}
+	fmt.Println()
+
+	fmt.Printf("⭐ Rating: %.1f (%d votes)\n", m.AverageRating, m.RatingCount)
+	fmt.Println("────────────────────────────────────────")
+
+	fmt.Print("Do you want to rate this manga? (y/n): ")
+	scanner.Scan()
+	ans := strings.TrimSpace(scanner.Text())
+
+	if ans != "y" && ans != "Y" {
+		return
+	}
+
+	fmt.Print("Enter rating (1-10): ")
+	scanner.Scan()
+	var rating int32
+	fmt.Sscanf(scanner.Text(), "%d", &rating)
+
+	resp, err := grpcClient.RateManga(session.UserID,mangaID, rating)
+	if err != nil {
+		fmt.Println("❌ Error:", err)
+		return
+	}
+
+	if !resp.Success {
+		fmt.Println("❌", resp.Message)
+		return
+	}
+
+	fmt.Printf("✅ Rated successfully! New average: %.1f (%d votes)\n",
+		resp.Average, resp.Count)
 }
 
 func doGetLibrary() {

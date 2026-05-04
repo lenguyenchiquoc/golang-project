@@ -21,7 +21,7 @@ type AuthService struct {
 
 var activeSessions = struct {
 	mu   sync.Mutex
-	data map[string]string // userID -> token
+	data map[string]string
 }{
 	data: make(map[string]string),
 }
@@ -61,10 +61,13 @@ func (a *AuthService) login(req models.LoginRequest) (*models.LoginResponse, err
 
 	activeSessions.mu.Lock()
 	defer activeSessions.mu.Unlock()
-	if _, exist := activeSessions.data[user.ID]; exist {
-		return nil, errors.New("already_logged_in")
-	}
+	if oldToken, exist := activeSessions.data[user.ID]; exist {
+		_, err := a.ValidateJWT(oldToken)
+		if err == nil {
+			return nil, errors.New("already_logged_in")
+		}
 
+	}
 	activeSessions.data[user.ID] = token
 
 	return &models.LoginResponse{
@@ -159,7 +162,7 @@ func (s *AuthService) generateJWT(user models.User) (string, error) {
 		"user_id":  user.ID,
 		"username": user.Username,
 		"email":    user.Email,
-		"exp":      time.Now().Add(10 * time.Minute).Unix(),
+		"exp":      time.Now().Add(30 * time.Second).Unix(),
 		"iat":      time.Now().Unix(),
 	}
 
