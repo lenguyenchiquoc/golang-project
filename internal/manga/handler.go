@@ -61,3 +61,25 @@ func (h *MangaHandler) GetManga(c *gin.Context) {
     }
     c.JSON(http.StatusOK, manga)
 }
+
+func (h *MangaHandler) RateManga(c *gin.Context) {
+	var req struct {
+		MangaID string `json:"manga_id"`
+		Rating  int32  `json:"rating"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	userID := c.GetString("user_id")
+
+	result, err := h.Service.RateManga(userID, req.MangaID, req.Rating)
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, result)
+}

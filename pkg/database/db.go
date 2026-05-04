@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 
+	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -18,6 +19,7 @@ func InitDB(filepath string) *sql.DB {
 	}
 
 	createTables(db)
+	seedGenres(db)
 	log.Println("✓ Initialize successfully!")
 	return db
 }
@@ -41,7 +43,7 @@ func createTables(db *sql.DB) {
 		description    TEXT,
 		cover_url      TEXT,
 		average_rating REAL    DEFAULT 0,
-		rating_avg   INTEGER DEFAULT 0
+		rating_count   INTEGER DEFAULT 0
 	);
 
 	CREATE TABLE IF NOT EXISTS genres (
@@ -82,4 +84,29 @@ func createTables(db *sql.DB) {
 	if err != nil {
 		log.Fatal("Can not create table:", err)
 	}
+}
+
+func seedGenres(db *sql.DB) {
+	genres := []string{
+		"action", "adventure", "comedy", "drama", "fantasy",
+		"horror", "mystery", "romance", "sci-fi", "slice of life",
+		"supernatural", "psychological", "thriller", "sports",
+		"mecha", "historical", "isekai", "magic", "school",
+		"shounen", "seinen", "shoujo", "josei", "ecchi",
+		"harem", "martial arts", "music", "game", "tragedy",
+	}
+
+	for _, name := range genres {
+		_, err := db.Exec(`
+			INSERT INTO genres (id, name)
+			VALUES (?, ?)
+			ON CONFLICT(name) DO NOTHING
+		`, uuid.New().String(), name)
+
+		if err != nil {
+			log.Println("seed genre error:", err)
+		}
+	}
+
+	log.Println("✓ Seed genres done")
 }

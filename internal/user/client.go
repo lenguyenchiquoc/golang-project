@@ -660,7 +660,7 @@ func doSearchManga(scanner *bufio.Scanner) {
     scanner.Scan()
     query := strings.TrimSpace(scanner.Text())
 
-    resp, err := grpcClient.SearchManga(query, "", "", 1, limit)
+    resp, err := grpcClient.SearchManga(query, []string{}, "", 1, limit)
     if err != nil {
         fmt.Println("❌ Error:", err)
         return

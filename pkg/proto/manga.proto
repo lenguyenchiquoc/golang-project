@@ -4,15 +4,22 @@ package manga;
 
 option go_package = "managahub/pkg/proto";
 
+message Genre {
+    string id   = 1;
+    string name = 2;
+}
+
 message MangaResponse {
     string id             = 1;
     string title          = 2;
     string author         = 3;
-    string genres         = 4;
+    repeated Genre genres = 4;
     string status         = 5;
     int32  total_chapters = 6;
     string description    = 7;
     string cover_url      = 8;
+    float average_rating = 9;
+    int32 rating_count   = 10;
 }
 
 message GetMangaRequest {
@@ -21,7 +28,7 @@ message GetMangaRequest {
 
 message SearchRequest {
     string query  = 1;
-    string genre  = 2;
+    repeated string genre  = 2;
     string status = 3;
     int32  page   = 4;
     int32  limit  = 5;
@@ -48,4 +55,18 @@ service MangaService {
     rpc GetManga(GetMangaRequest)       returns (MangaResponse);
     rpc SearchManga(SearchRequest)      returns (SearchResponse);
     rpc UpdateProgress(ProgressRequest) returns (ProgressResponse);
+    rpc RateManga(RatingRequest) returns (RatingResponse);
+}
+
+message RatingRequest {
+    string user_id  = 1;
+    string manga_id = 2;
+    int32  rating   = 3;
+}
+
+message RatingResponse {
+    bool   success = 1;
+    string message = 2;
+    float  average = 3;
+    int32  count   = 4;
 }

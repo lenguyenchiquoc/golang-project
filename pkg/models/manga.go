@@ -9,12 +9,14 @@ type Manga struct {
 	TotalChapters int    `json:"total_chapter" binding:"required"`
 	Description   string `json:"description" binding:"required"`
 	Cover_url     string `json:"cover_url" binding:"required"`
+	AverageRating float64  `json:"average_rating"` 
+    RatingCount   int      `json:"rating_count"`    
 }
 
 type CreateMangaRequest struct {
 	Title         string `json:"title" binding:"required"`
 	Author        string `json:"author" binding:"required"`
-	Genres        string `json:"genres"`
+	Genres        []string `json:"genres"`
 	Status        string `json:"status"`
 	TotalChapters int    `json:"total_chapters"`
 	Description   string `json:"description"`
@@ -31,4 +33,11 @@ type SearchMangaRequest struct {
 type Genre struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+type RatingResponse struct {
+	Success bool    `json:"success"`
+	Message string  `json:"message"`
+	Average float32 `json:"average"`
+	Count   int32   `json:"count"`
 }
