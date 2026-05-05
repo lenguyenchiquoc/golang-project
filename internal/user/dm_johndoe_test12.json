@@ -5,5 +5,19 @@
     "recipient": "johndoe",
     "content": "hello john",
     "timestamp": "11:05:30"
+  },
+  {
+    "type": "dm",
+    "sender": "johndoe",
+    "recipient": "test12",
+    "content": "hello",
+    "timestamp": "21:37:13"
+  },
+  {
+    "type": "dm",
+    "sender": "test12",
+    "recipient": "johndoe",
+    "content": "ko",
+    "timestamp": "21:37:23"
   }
 ]

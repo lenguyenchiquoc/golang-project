@@ -4,12 +4,11 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	grpcserver "managahub/internal/grpc"
-	pb "managahub/pkg/proto/managahub/pkg/proto"
+	// pb "managahub/pkg/proto/managahub/pkg/proto"
 	"net"
 	"net/http"
 	"os"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/golang-jwt/jwt/v4"
 )
 
 const (
@@ -88,15 +88,12 @@ type LocalMessage struct {
 	Timestamp string `json:"timestamp"`
 }
 
-// ====================== GLOBAL VARIABLES ======================
-
 var session = &Session{}
 var availableRooms = []string{"general", "manga", "gaming"}
 var pendingDM = make(map[string]string)
 var pendingMu sync.Mutex
 var userListChan = make(chan []string)
 var mangaGRPC *grpcserver.MangaGRPCClient
-var watcherRunning = false
 
 // ====================== MAIN ======================
 
@@ -124,37 +121,25 @@ func main() {
 		}
 	}
 }
+func startTokenWatcher(token string) { 
+    go func() {
+        ticker := time.NewTicker(15 * time.Second)
+        defer ticker.Stop()
 
-func startTokenWatcher(ctx context.Context) {
-	if watcherRunning {
-		return
-	} // Nếu đang chạy rồi thì thôi
+        for {
+            <-ticker.C
+            if session.Token == "" || session.Token != token {
+                return
+            }
 
-	watcherRunning = true
-	ticker := time.NewTicker(15 * time.Second)
-
-	go func() {
-		defer func() {
-			ticker.Stop()
-			watcherRunning = false // Reset trạng thái khi thoát
-		}()
-
-		for {
-			select {
-			case <-ticker.C:
-				if session.Token == "" {
-					return
-				}
-
-				_, err := mangaGRPC.GetClient().Ping(context.Background(), &pb.Empty{})
-				if err != nil {
-					return
-				}
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
+            if isTokenExpired() {
+                fmt.Println("\n❌ Session token is expired!")
+                doLogout()
+                fmt.Print("Press enter to menu")
+                return
+            }
+        }
+    }()
 }
 
 // ====================== AUTH MENU ======================
@@ -201,6 +186,9 @@ func showAuthMenu(scanner *bufio.Scanner) {
 }
 
 func showMainMenu(scanner *bufio.Scanner) {
+	if session.Token == "" {
+            return 
+    }
 	fmt.Printf("\n=== WELCOME %s ===\n", strings.ToUpper(session.Username))
 	fmt.Println("1. Search manga")
 	fmt.Println("2. View my library")
@@ -212,7 +200,7 @@ func showMainMenu(scanner *bufio.Scanner) {
 
 	scanner.Scan()
 	choice := strings.TrimSpace(scanner.Text())
-
+	
 	switch choice {
 	case "1":
 		doSearchManga(scanner)
@@ -238,6 +226,9 @@ func chatMenu(scanner *bufio.Scanner) {
 		unreadMu.Lock()
 		count := unreadDM
 		unreadMu.Unlock()
+		if session.Token == "" {
+            return 
+        }
 		fmt.Println("\n=== CHAT MENU ===")
 		if count > 0 {
 			fmt.Printf("1. View DM history 🔴 %d unread\n", count)
@@ -314,7 +305,11 @@ func joinRoomFlow(scanner *bufio.Scanner) {
 }
 
 func roomLoop(scanner *bufio.Scanner, client *ChatClient) {
+
 	for {
+		if session.Token == "" {
+            return 
+        }
 		fmt.Printf("[%s] > ", client.room)
 		if !scanner.Scan() {
 			client.close()
@@ -386,7 +381,9 @@ func sendDMFlow(scanner *bufio.Scanner) {
 	choice := strings.TrimSpace(scanner.Text())
 
 	var recipient string
-
+	if session.Token == "" {
+            return 
+    }
 	switch choice {
 
 	case "1":
@@ -676,6 +673,7 @@ func doLogin(scanner *bufio.Scanner) {
 		go doConnectTCP()
 		go doRegisterUDP()
 		go doListenWS()
+		startTokenWatcher(session.Token)
 	} else if errMsg, ok := resp["error"]; ok {
 		fmt.Println("❌", errMsg)
 	}
@@ -705,9 +703,14 @@ func doLogout() {
 	session = &Session{}
 }
 
+
+
 // ====================== MANGA FUNCTIONS ======================
 
 func doSearchManga(scanner *bufio.Scanner) {
+	if session.Token == "" {
+            return 
+    }
 	fmt.Print("Results per page (default 10): ")
 	scanner.Scan()
 	limitStr := strings.TrimSpace(scanner.Text())
@@ -789,6 +792,9 @@ func doSearchManga(scanner *bufio.Scanner) {
 }
 
 func viewMangaDetailAndRate(scanner *bufio.Scanner, mangaID string) {
+	if session.Token == "" {
+            return 
+    }	
 	m, err := mangaGRPC.GetManga(mangaID)
 	if err != nil {
 		fmt.Println("❌ Error:", err)
@@ -843,6 +849,9 @@ func viewMangaDetailAndRate(scanner *bufio.Scanner, mangaID string) {
 }
 
 func doGetLibrary() {
+	if session.Token == "" {
+            return 
+    }
 	resp, err := httpGet("/users/library", session.Token)
 	if err != nil {
 		fmt.Println("❌ Error:", err)
@@ -872,6 +881,9 @@ func doGetLibrary() {
 }
 
 func doAddToLibrary(scanner *bufio.Scanner) {
+	if session.Token == "" {
+            return 
+    }
 	fmt.Print("Enter Manga ID: ")
 	scanner.Scan()
 	mangaID := strings.TrimSpace(scanner.Text())
@@ -915,6 +927,9 @@ func doAddToLibrary(scanner *bufio.Scanner) {
 }
 
 func doUpdateProgress(scanner *bufio.Scanner) {
+	if session.Token == "" {
+            return 
+    }
 	fmt.Print("Enter Manga ID: ")
 	scanner.Scan()
 	mangaID := strings.TrimSpace(scanner.Text())
@@ -1232,4 +1247,29 @@ func doListenWS() {
 		}
 	}()
 
+}
+
+func isTokenExpired() bool {
+    if session.Token == "" {
+        return true
+    }
+
+    // Parse token không verify signature
+    token, _, err := new(jwt.Parser).ParseUnverified(session.Token, jwt.MapClaims{})
+    if err != nil {
+        return true
+    }
+
+    claims, ok := token.Claims.(jwt.MapClaims)
+    if !ok {
+        return true
+    }
+
+    // Check exp
+    exp, ok := claims["exp"].(float64)
+    if !ok {
+        return true
+    }
+
+    return time.Now().Unix() > int64(exp)
 }
