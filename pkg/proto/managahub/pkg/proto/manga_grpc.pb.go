@@ -23,6 +23,7 @@ const (
 	MangaService_SearchManga_FullMethodName    = "/manga.MangaService/SearchManga"
 	MangaService_UpdateProgress_FullMethodName = "/manga.MangaService/UpdateProgress"
 	MangaService_RateManga_FullMethodName      = "/manga.MangaService/RateManga"
+	MangaService_Ping_FullMethodName           = "/manga.MangaService/Ping"
 )
 
 // MangaServiceClient is the client API for MangaService service.
@@ -33,6 +34,7 @@ type MangaServiceClient interface {
 	SearchManga(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchResponse, error)
 	UpdateProgress(ctx context.Context, in *ProgressRequest, opts ...grpc.CallOption) (*ProgressResponse, error)
 	RateManga(ctx context.Context, in *RatingRequest, opts ...grpc.CallOption) (*RatingResponse, error)
+	Ping(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type mangaServiceClient struct {
@@ -83,6 +85,16 @@ func (c *mangaServiceClient) RateManga(ctx context.Context, in *RatingRequest, o
 	return out, nil
 }
 
+func (c *mangaServiceClient) Ping(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, MangaService_Ping_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MangaServiceServer is the server API for MangaService service.
 // All implementations must embed UnimplementedMangaServiceServer
 // for forward compatibility.
@@ -91,6 +103,7 @@ type MangaServiceServer interface {
 	SearchManga(context.Context, *SearchRequest) (*SearchResponse, error)
 	UpdateProgress(context.Context, *ProgressRequest) (*ProgressResponse, error)
 	RateManga(context.Context, *RatingRequest) (*RatingResponse, error)
+	Ping(context.Context, *Empty) (*Empty, error)
 	mustEmbedUnimplementedMangaServiceServer()
 }
 
@@ -112,6 +125,9 @@ func (UnimplementedMangaServiceServer) UpdateProgress(context.Context, *Progress
 }
 func (UnimplementedMangaServiceServer) RateManga(context.Context, *RatingRequest) (*RatingResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method RateManga not implemented")
+}
+func (UnimplementedMangaServiceServer) Ping(context.Context, *Empty) (*Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method Ping not implemented")
 }
 func (UnimplementedMangaServiceServer) mustEmbedUnimplementedMangaServiceServer() {}
 func (UnimplementedMangaServiceServer) testEmbeddedByValue()                      {}
@@ -206,6 +222,24 @@ func _MangaService_RateManga_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MangaService_Ping_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MangaServiceServer).Ping(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MangaService_Ping_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MangaServiceServer).Ping(ctx, req.(*Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MangaService_ServiceDesc is the grpc.ServiceDesc for MangaService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -228,6 +262,10 @@ var MangaService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RateManga",
 			Handler:    _MangaService_RateManga_Handler,
+		},
+		{
+			MethodName: "Ping",
+			Handler:    _MangaService_Ping_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

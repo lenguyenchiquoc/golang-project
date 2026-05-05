@@ -7,32 +7,39 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	ErrMissingAuth   = "AUTH_MISSING_HEADER"
+	ErrInvalidFormat = "AUTH_INVALID_FORMAT"
+	ErrTokenExpired  = "AUTH_TOKEN_EXPIRED"
+	ErrTokenInvalid  = "AUTH_TOKEN_INVALID"
+)
+
 func JWTMiddleware(service *AuthService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "lack of  Authorization header",
-			})
-			c.Abort()
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": ErrMissingAuth})
 			return
 		}
+
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "wrong format token: Bearer <token>",
-			})
-			c.Abort()
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": ErrInvalidFormat})
 			return
 		}
 
 		tokenStr := parts[1]
 		claims, err := service.ValidateJWT(tokenStr)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": err.Error(),
+			errMsg := ErrTokenInvalid
+			if strings.Contains(err.Error(), "expired") {
+				errMsg = ErrTokenExpired
+			}
+
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error":   errMsg,
+				"details": err.Error(),
 			})
-			c.Abort()
 			return
 		}
 		c.Set("user_id", claims["user_id"])

@@ -56,6 +56,7 @@ service MangaService {
     rpc SearchManga(SearchRequest)      returns (SearchResponse);
     rpc UpdateProgress(ProgressRequest) returns (ProgressResponse);
     rpc RateManga(RatingRequest) returns (RatingResponse);
+    rpc Ping(Empty) returns (Empty);
 }
 
 message RatingRequest {
@@ -70,3 +71,5 @@ message RatingResponse {
     float  average = 3;
     int32  count   = 4;
 }
+
+message Empty {}

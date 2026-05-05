@@ -2,22 +2,20 @@ package library
 
 import (
 	"net/http"
+	"strings"
+
+	"managahub/pkg/models"
 
 	"github.com/gin-gonic/gin"
-
-	grpcserver "managahub/internal/grpc"
-	"managahub/pkg/models"
 )
 
 type LibraryHandler struct {
 	Service    *LibraryService
-	GRPCClient *grpcserver.MangaGRPCClient
 }
 
-func NewLibraryHandler(service *LibraryService, grpcClient *grpcserver.MangaGRPCClient) *LibraryHandler {
+func NewLibraryHandler(service *LibraryService) *LibraryHandler {
 	return &LibraryHandler{
 		Service:    service,
-		GRPCClient: grpcClient,
 	}
 }
 
@@ -60,7 +58,7 @@ func (h *LibraryHandler) GetLibrary(c *gin.Context) {
 	})
 }
 
-// PUT /users/progress → gọi qua gRPC
+// PUT /users/progress
 func (h *LibraryHandler) UpdateProgress(c *gin.Context) {
 	userID, _ := c.Get("user_id")
 
@@ -70,25 +68,19 @@ func (h *LibraryHandler) UpdateProgress(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.GRPCClient.UpdateProgress(
-		userID.(string),
-		req.MangaID,
-		int32(req.CurrentChapter),
-		req.Status,
-	)
+	err := h.Service.UpdateProgress(userID.(string), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	if !resp.Success {
-		c.JSON(http.StatusBadRequest, gin.H{"error": resp.Message})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message":         resp.Message,
-		"manga_id":        req.MangaID,
-		"current_chapter": req.CurrentChapter,
-	})
+        if strings.Contains(err.Error(), "exist") || strings.Contains(err.Error(), "invalid") {
+            c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        } else {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+        }
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{
+        "status":          "success",
+        "message":         "Progress updated successfully",
+        "manga_id":        req.MangaID,
+        "current_chapter": req.CurrentChapter,
+    })
 }

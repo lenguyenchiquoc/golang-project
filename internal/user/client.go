@@ -4,10 +4,12 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	grpcserver "managahub/internal/grpc"
+	pb "managahub/pkg/proto/managahub/pkg/proto"
 	"net"
 	"net/http"
 	"os"
@@ -93,6 +95,8 @@ var availableRooms = []string{"general", "manga", "gaming"}
 var pendingDM = make(map[string]string)
 var pendingMu sync.Mutex
 var userListChan = make(chan []string)
+var mangaGRPC *grpcserver.MangaGRPCClient
+var watcherRunning = false
 
 // ====================== MAIN ======================
 
@@ -100,7 +104,16 @@ func main() {
 	fmt.Println("╔════════════════════════════════════╗")
 	fmt.Println("║        MANGAHUB CLIENT             ║")
 	fmt.Println("╚════════════════════════════════════╝")
+	getToken := func() string {
+		return session.Token
+	}
 
+	onAuthFailed := func() {
+		doLogout()
+	}
+
+	mangaGRPC = grpcserver.NewMangaGRPCClient("localhost:9092", getToken, onAuthFailed)
+	defer mangaGRPC.Close()
 	scanner := bufio.NewScanner(os.Stdin)
 
 	for {
@@ -112,7 +125,57 @@ func main() {
 	}
 }
 
+func startTokenWatcher(ctx context.Context) {
+	if watcherRunning {
+		return
+	} // Nếu đang chạy rồi thì thôi
+
+	watcherRunning = true
+	ticker := time.NewTicker(15 * time.Second)
+
+	go func() {
+		defer func() {
+			ticker.Stop()
+			watcherRunning = false // Reset trạng thái khi thoát
+		}()
+
+		for {
+			select {
+			case <-ticker.C:
+				if session.Token == "" {
+					return
+				}
+
+				_, err := mangaGRPC.GetClient().Ping(context.Background(), &pb.Empty{})
+				if err != nil {
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
 // ====================== AUTH MENU ======================
+func checkAuthError(resp map[string]interface{}) bool {
+	errCode, ok := resp["error"].(string)
+	if !ok {
+		return false
+	}
+
+	switch errCode {
+	case "AUTH_TOKEN_EXPIRED":
+		fmt.Println("❌ Session expired! Please login again.")
+		doLogout()
+		return true
+	case "AUTH_MISSING_HEADER", "AUTH_INVALID_FORMAT", "AUTH_TOKEN_INVALID":
+		fmt.Println("❌ Authentication error! Please login again.")
+		doLogout()
+		return true
+	}
+	return false
+}
 
 func showAuthMenu(scanner *bufio.Scanner) {
 	fmt.Println("\n=== LOGIN / REGISTER ===")
@@ -332,13 +395,11 @@ func sendDMFlow(scanner *bufio.Scanner) {
 			return
 		}
 
-		// request server
 		session.WSPrivateConn.WriteMessage(
 			websocket.TextMessage,
 			[]byte(`{"type":"list_all_users"}`),
 		)
 
-		// ⬇️ CHỜ RESPONSE
 		var users []string
 
 		select {
@@ -612,7 +673,6 @@ func doLogin(scanner *bufio.Scanner) {
 		session.UserID = resp["user_id"].(string)
 		session.Username = resp["username"].(string)
 		fmt.Printf("✅ Login successful! Welcome %s\n", session.Username)
-		grpcClient = grpcserver.NewMangaGRPCClient("localhost:9092")
 		go doConnectTCP()
 		go doRegisterUDP()
 		go doListenWS()
@@ -628,6 +688,7 @@ func doLogout() {
 	if err != nil {
 		fmt.Println("❌ Logout API failed:", err)
 	}
+
 	if session.TCPConn != nil {
 		session.TCPConn.Close()
 	}
@@ -645,7 +706,6 @@ func doLogout() {
 }
 
 // ====================== MANGA FUNCTIONS ======================
-var grpcClient *grpcserver.MangaGRPCClient
 
 func doSearchManga(scanner *bufio.Scanner) {
 	fmt.Print("Results per page (default 10): ")
@@ -679,7 +739,7 @@ func doSearchManga(scanner *bufio.Scanner) {
 	scanner.Scan()
 	status := strings.TrimSpace(scanner.Text())
 
-	resp, err := grpcClient.SearchManga(query, genres, status, 1, limit)
+	resp, err := mangaGRPC.SearchManga(query, genres, status, 1, limit)
 	if err != nil {
 		fmt.Println("❌ Error:", err)
 		return
@@ -729,13 +789,12 @@ func doSearchManga(scanner *bufio.Scanner) {
 }
 
 func viewMangaDetailAndRate(scanner *bufio.Scanner, mangaID string) {
-	m, err := grpcClient.GetManga(mangaID)
+	m, err := mangaGRPC.GetManga(mangaID)
 	if err != nil {
 		fmt.Println("❌ Error:", err)
 		return
 	}
 
-	// 👉 show detail
 	fmt.Println("\n📖 Manga Detail")
 	fmt.Println("────────────────────────────────────────")
 	fmt.Println("Title:", m.Title)
@@ -743,7 +802,6 @@ func viewMangaDetailAndRate(scanner *bufio.Scanner, mangaID string) {
 	fmt.Println("Status:", m.Status)
 	fmt.Println("Chapters:", m.TotalChapters)
 
-	// genres
 	fmt.Print("Genres: ")
 	for i, g := range m.Genres {
 		fmt.Print(g.Name)
@@ -769,7 +827,7 @@ func viewMangaDetailAndRate(scanner *bufio.Scanner, mangaID string) {
 	var rating int32
 	fmt.Sscanf(scanner.Text(), "%d", &rating)
 
-	resp, err := grpcClient.RateManga(session.UserID,mangaID, rating)
+	resp, err := mangaGRPC.RateManga(session.UserID, mangaID, rating)
 	if err != nil {
 		fmt.Println("❌ Error:", err)
 		return
@@ -788,6 +846,9 @@ func doGetLibrary() {
 	resp, err := httpGet("/users/library", session.Token)
 	if err != nil {
 		fmt.Println("❌ Error:", err)
+		return
+	}
+	if checkAuthError(resp) {
 		return
 	}
 
@@ -842,6 +903,10 @@ func doAddToLibrary(scanner *bufio.Scanner) {
 		return
 	}
 
+	if checkAuthError(resp) {
+		return
+	}
+
 	if msg, ok := resp["message"]; ok {
 		fmt.Println("✅", msg)
 	} else {
@@ -881,6 +946,10 @@ func doUpdateProgress(scanner *bufio.Scanner) {
 	resp, err := httpPut("/users/progress", body, session.Token)
 	if err != nil {
 		fmt.Println("❌ Error:", err)
+		return
+	}
+
+	if checkAuthError(resp) {
 		return
 	}
 

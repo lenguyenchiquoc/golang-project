@@ -609,6 +609,42 @@ func (x *RatingResponse) GetCount() int32 {
 	return 0
 }
 
+type Empty struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Empty) Reset() {
+	*x = Empty{}
+	mi := &file_manga_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Empty) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Empty) ProtoMessage() {}
+
+func (x *Empty) ProtoReflect() protoreflect.Message {
+	mi := &file_manga_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Empty.ProtoReflect.Descriptor instead.
+func (*Empty) Descriptor() ([]byte, []int) {
+	return file_manga_proto_rawDescGZIP(), []int{9}
+}
+
 var File_manga_proto protoreflect.FileDescriptor
 
 const file_manga_proto_rawDesc = "" +
@@ -656,12 +692,14 @@ const file_manga_proto_rawDesc = "" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x18\n" +
 	"\aaverage\x18\x03 \x01(\x02R\aaverage\x12\x14\n" +
-	"\x05count\x18\x04 \x01(\x05R\x05count2\x81\x02\n" +
+	"\x05count\x18\x04 \x01(\x05R\x05count\"\a\n" +
+	"\x05Empty2\xa5\x02\n" +
 	"\fMangaService\x128\n" +
 	"\bGetManga\x12\x16.manga.GetMangaRequest\x1a\x14.manga.MangaResponse\x12:\n" +
 	"\vSearchManga\x12\x14.manga.SearchRequest\x1a\x15.manga.SearchResponse\x12A\n" +
 	"\x0eUpdateProgress\x12\x16.manga.ProgressRequest\x1a\x17.manga.ProgressResponse\x128\n" +
-	"\tRateManga\x12\x14.manga.RatingRequest\x1a\x15.manga.RatingResponseB\x15Z\x13managahub/pkg/protob\x06proto3"
+	"\tRateManga\x12\x14.manga.RatingRequest\x1a\x15.manga.RatingResponse\x12\"\n" +
+	"\x04Ping\x12\f.manga.Empty\x1a\f.manga.EmptyB\x15Z\x13managahub/pkg/protob\x06proto3"
 
 var (
 	file_manga_proto_rawDescOnce sync.Once
@@ -675,7 +713,7 @@ func file_manga_proto_rawDescGZIP() []byte {
 	return file_manga_proto_rawDescData
 }
 
-var file_manga_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_manga_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_manga_proto_goTypes = []any{
 	(*Genre)(nil),            // 0: manga.Genre
 	(*MangaResponse)(nil),    // 1: manga.MangaResponse
@@ -686,6 +724,7 @@ var file_manga_proto_goTypes = []any{
 	(*ProgressResponse)(nil), // 6: manga.ProgressResponse
 	(*RatingRequest)(nil),    // 7: manga.RatingRequest
 	(*RatingResponse)(nil),   // 8: manga.RatingResponse
+	(*Empty)(nil),            // 9: manga.Empty
 }
 var file_manga_proto_depIdxs = []int32{
 	0, // 0: manga.MangaResponse.genres:type_name -> manga.Genre
@@ -694,12 +733,14 @@ var file_manga_proto_depIdxs = []int32{
 	3, // 3: manga.MangaService.SearchManga:input_type -> manga.SearchRequest
 	5, // 4: manga.MangaService.UpdateProgress:input_type -> manga.ProgressRequest
 	7, // 5: manga.MangaService.RateManga:input_type -> manga.RatingRequest
-	1, // 6: manga.MangaService.GetManga:output_type -> manga.MangaResponse
-	4, // 7: manga.MangaService.SearchManga:output_type -> manga.SearchResponse
-	6, // 8: manga.MangaService.UpdateProgress:output_type -> manga.ProgressResponse
-	8, // 9: manga.MangaService.RateManga:output_type -> manga.RatingResponse
-	6, // [6:10] is the sub-list for method output_type
-	2, // [2:6] is the sub-list for method input_type
+	9, // 6: manga.MangaService.Ping:input_type -> manga.Empty
+	1, // 7: manga.MangaService.GetManga:output_type -> manga.MangaResponse
+	4, // 8: manga.MangaService.SearchManga:output_type -> manga.SearchResponse
+	6, // 9: manga.MangaService.UpdateProgress:output_type -> manga.ProgressResponse
+	8, // 10: manga.MangaService.RateManga:output_type -> manga.RatingResponse
+	9, // 11: manga.MangaService.Ping:output_type -> manga.Empty
+	7, // [7:12] is the sub-list for method output_type
+	2, // [2:7] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
 	2, // [2:2] is the sub-list for extension extendee
 	0, // [0:2] is the sub-list for field type_name
@@ -716,7 +757,7 @@ func file_manga_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_manga_proto_rawDesc), len(file_manga_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

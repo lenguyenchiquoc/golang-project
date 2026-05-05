@@ -4,21 +4,36 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log"
 	"net"
+	"strings"
 
 	pb "managahub/pkg/proto/managahub/pkg/proto"
 
+	"github.com/golang-jwt/jwt/v5"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 type MangaGRPCServer struct {
 	pb.UnimplementedMangaServiceServer
 	DB *sql.DB
+	JWTSecret string
 }
 
-func NewMangaGRPCServer(db *sql.DB) *MangaGRPCServer {
-	return &MangaGRPCServer{DB: db}
+func NewMangaGRPCServer(db *sql.DB, secret string) *MangaGRPCServer {
+    return &MangaGRPCServer{
+        DB:        db,
+        JWTSecret: secret,
+    }
+}
+
+type Claims struct {
+    UserID string `json:"user_id"`
+    jwt.RegisteredClaims
 }
 
 func (s *MangaGRPCServer) GetManga(ctx context.Context, req *pb.GetMangaRequest) (*pb.MangaResponse, error) {
@@ -238,18 +253,71 @@ func (s *MangaGRPCServer) UpdateProgress(ctx context.Context, req *pb.ProgressRe
 }
 
 func (s *MangaGRPCServer) Start(port string) {
-	listener, err := net.Listen("tcp", ":"+port)
+    listener, err := net.Listen("tcp", ":"+port)
+    if err != nil {
+        log.Fatal("Cannot start gRPC server:", err)
+    }
+    grpcServer := grpc.NewServer(
+        grpc.UnaryInterceptor(s.authInterceptor),
+    )
+
+    pb.RegisterMangaServiceServer(grpcServer, s)
+
+    log.Println("🚀 gRPC Server running at port", port)
+    if err := grpcServer.Serve(listener); err != nil {
+        log.Fatal("gRPC server error:", err)
+    }
+}
+
+func (s *MangaGRPCServer) authInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "Yêu cầu không có metadata")
+	}
+
+	authHeader := md["authorization"]
+	// if len(authHeader) == 0 {
+	// 	return nil, status.Error(codes.Unauthenticated, "Bạn chưa đăng nhập (Thiếu Token)")
+	// }
+
+	tokenStr := strings.TrimPrefix(authHeader[0], "Bearer ")
+	claims, err := s.JWTParser(tokenStr) 
 	if err != nil {
-		log.Fatal("Cannot start gRPC server:", err)
+		return nil, status.Error(codes.Unauthenticated, "Token is expired or invalid")
 	}
+	newCtx := context.WithValue(ctx, "user_id", claims.UserID)
+	return handler(newCtx, req)
+}
 
-	grpcServer := grpc.NewServer()
-	pb.RegisterMangaServiceServer(grpcServer, s)
+func (s *MangaGRPCServer) JWTParser(tokenStr string) (*Claims, error) {
 
-	log.Println("gRPC Server running at port", port)
-	if err := grpcServer.Serve(listener); err != nil {
-		log.Fatal("gRPC server error:", err)
-	}
+    key := []byte(s.JWTSecret)
+
+    token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+        if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+            return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+        }
+        return key, nil
+    })
+
+    if err != nil {
+        return nil, err 
+    }
+
+    if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+        return claims, nil
+    }
+
+    return nil, errors.New("invalid token")
+}
+
+
+
+func (s *MangaGRPCServer) validateToken(token string) (bool, string) {
+	// Logic parse JWT và check Expired ở đây
+	// Trả về (true, userID) nếu hợp lệ, (false, "") nếu hết hạn
+	return true, "some-user-id"
 }
 
 func (s *MangaGRPCServer) RateManga(ctx context.Context, req *pb.RatingRequest) (*pb.RatingResponse, error) {
