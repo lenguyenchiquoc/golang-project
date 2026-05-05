@@ -6,7 +6,7 @@ import (
 	grpc "managahub/internal/grpc"
 )
 
-func Run(db *sql.DB) {
-	server := grpc.NewMangaGRPCServer(db)
+func Run(db *sql.DB, jwt string) {
+	server := grpc.NewMangaGRPCServer(db,jwt)
 	go server.Start("9092")
 }

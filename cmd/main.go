@@ -14,10 +14,10 @@ import (
 func main() {
 	db := database.InitDB("./mangahub.db")
 	defer db.Close()
-
+	jwtSecret := "ITITIU22134_LENGUYENCHIQUOC"
 	tcpServer := tcpserver.Run()    
 	udpServer := udpserver.Run()    
-	grpcserver.Run(db)             
+	grpcserver.Run(db, jwtSecret)             
 	hub       := wsserver.Run()    
 
 	log.Println("MangaHub starting...")
@@ -27,5 +27,5 @@ func main() {
 	log.Println("gRPC      : grpc://localhost:9092")
 	log.Println("WebSocket : ws://localhost:8080/ws")
 
-	apiserver.Run(tcpServer, udpServer, hub, db)
+	apiserver.Run(tcpServer, udpServer, hub, db, jwtSecret)
 }

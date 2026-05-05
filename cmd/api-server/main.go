@@ -8,7 +8,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"managahub/internal/auth"
-	grpcserver "managahub/internal/grpc"
 	"managahub/internal/library"
 	"managahub/internal/manga"
 	"managahub/internal/tcp"
@@ -16,16 +15,14 @@ import (
 	wsocket "managahub/internal/websocket"
 )
 
-func Run(tcpServer *tcp.ProgressSyncServer, udpServer *udp.NotificationServer, ws *wsocket.ChatHub, db *sql.DB) {
-	jwtSecret := "ITITIU22134_LENGUYENCHIQUOC"
-	grpcClient := grpcserver.NewMangaGRPCClient("localhost:9092")
+func Run(tcpServer *tcp.ProgressSyncServer, udpServer *udp.NotificationServer, ws *wsocket.ChatHub, db *sql.DB, jwtSecret string) {
 	authService := auth.NewAuthService(db, jwtSecret)
 	mangaService := manga.NewMangaService(db)
 	libraryService := library.NewLibraryService(db, tcpServer)
 
 	authHandler := auth.NewAuthHandler(authService)
 	mangaHandler := manga.NewMangaHandler(mangaService)
-	libraryHandler := library.NewLibraryHandler(libraryService, grpcClient)
+	libraryHandler := library.NewLibraryHandler(libraryService)
 	notifyHandler := udp.NewNotificationHandler(udpServer)
 	r := gin.Default()
 
