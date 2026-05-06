@@ -168,7 +168,6 @@ func showAuthMenu(scanner *bufio.Scanner) {
 	fmt.Println("2. Register")
 	fmt.Println("0. Exit")
 	fmt.Print("Choice: ")
-
 	scanner.Scan()
 	choice := strings.TrimSpace(scanner.Text())
 
@@ -186,9 +185,7 @@ func showAuthMenu(scanner *bufio.Scanner) {
 }
 
 func showMainMenu(scanner *bufio.Scanner) {
-	if session.Token == "" {
-            return 
-    }
+
 	fmt.Printf("\n=== WELCOME %s ===\n", strings.ToUpper(session.Username))
 	fmt.Println("1. Search manga")
 	fmt.Println("2. View my library")
@@ -197,7 +194,9 @@ func showMainMenu(scanner *bufio.Scanner) {
 	fmt.Println("5. Chat")
 	fmt.Println("0. Logout")
 	fmt.Print("Choice: ")
-
+	if session.Token == "" {
+        return 
+    }
 	scanner.Scan()
 	choice := strings.TrimSpace(scanner.Text())
 	
@@ -219,16 +218,12 @@ func showMainMenu(scanner *bufio.Scanner) {
 	}
 }
 
-// ====================== CHAT MENU ======================
 
 func chatMenu(scanner *bufio.Scanner) {
 	for {
 		unreadMu.Lock()
 		count := unreadDM
 		unreadMu.Unlock()
-		if session.Token == "" {
-            return 
-        }
 		fmt.Println("\n=== CHAT MENU ===")
 		if count > 0 {
 			fmt.Printf("1. View DM history 🔴 %d unread\n", count)
@@ -239,7 +234,9 @@ func chatMenu(scanner *bufio.Scanner) {
 		fmt.Println("3. Send DM")
 		fmt.Println("0. Back")
 		fmt.Print("Choice: ")
-
+		if session.Token == "" {
+			return 
+		}
 		scanner.Scan()
 		choice := strings.TrimSpace(scanner.Text())
 
@@ -269,6 +266,9 @@ func joinRoomFlow(scanner *bufio.Scanner) {
 		fmt.Printf("%d. %s\n", i+1, r)
 	}
 	fmt.Print("Enter room name or number: ")
+	if session.Token == "" {
+        return 
+    }	
 	scanner.Scan()
 	input := strings.TrimSpace(scanner.Text())
 
@@ -305,11 +305,11 @@ func joinRoomFlow(scanner *bufio.Scanner) {
 }
 
 func roomLoop(scanner *bufio.Scanner, client *ChatClient) {
-
 	for {
 		if session.Token == "" {
-            return 
-        }
+			client.close()
+			return
+		}
 		fmt.Printf("[%s] > ", client.room)
 		if !scanner.Scan() {
 			client.close()
@@ -319,6 +319,11 @@ func roomLoop(scanner *bufio.Scanner, client *ChatClient) {
 		text := strings.TrimSpace(scanner.Text())
 		if text == "" {
 			continue
+		}
+
+		if session.Token == "" {
+			client.close()
+			return
 		}
 
 		switch {
@@ -514,6 +519,10 @@ func (c *ChatClient) readLoop() {
 	defer c.close()
 
 	for {
+
+		if session.Token == "" {
+			return
+		}
 		c.conn.SetPongHandler(func(string) error {
 			c.conn.SetReadDeadline(time.Now().Add(70 * time.Second))
 			return nil
@@ -529,6 +538,10 @@ func (c *ChatClient) readLoop() {
 		var msg WSMessage
 		if err := json.Unmarshal(rawMsg, &msg); err != nil {
 			continue
+		}
+
+		if session.Token == "" {
+			return
 		}
 
 		switch msg.Type {
