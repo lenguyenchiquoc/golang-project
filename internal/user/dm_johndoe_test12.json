@@ -180,5 +180,26 @@
     "recipient": "test12",
     "content": "ok bro",
     "timestamp": "13:51:43"
+  },
+  {
+    "type": "dm",
+    "sender": "test12",
+    "recipient": "johndoe",
+    "content": "hello you",
+    "timestamp": "20:18:16"
+  },
+  {
+    "type": "dm",
+    "sender": "test12",
+    "recipient": "johndoe",
+    "content": "nope i dont like u",
+    "timestamp": "20:20:13"
+  },
+  {
+    "type": "dm",
+    "sender": "test12",
+    "recipient": "johndoe",
+    "content": "josw",
+    "timestamp": "20:52:16"
   }
 ]
