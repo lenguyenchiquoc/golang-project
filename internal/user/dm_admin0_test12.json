@@ -1,0 +1,16 @@
+[
+  {
+    "type": "dm",
+    "sender": "test12",
+    "recipient": "admin0",
+    "content": "hello",
+    "timestamp": "14:40:56"
+  },
+  {
+    "type": "dm",
+    "sender": "admin0",
+    "recipient": "test12",
+    "content": "yooo",
+    "timestamp": "14:41:13"
+  }
+]

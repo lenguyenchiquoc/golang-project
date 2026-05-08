@@ -162,7 +162,7 @@ func (s *AuthService) generateJWT(user models.User) (string, error) {
 		"user_id":  user.ID,
 		"username": user.Username,
 		"email":    user.Email,
-		"exp":      time.Now().Add(30 * time.Second).Unix(),
+		"exp":      time.Now().Add(5 * time.Minute).Unix(),
 		"iat":      time.Now().Unix(),
 	}
 

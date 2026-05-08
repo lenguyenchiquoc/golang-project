@@ -392,6 +392,11 @@ func sendDMFlow(scanner *bufio.Scanner) {
 	switch choice {
 
 	case "1":
+
+		if session.WSPrivateConn == nil {
+			doListenWS()
+			time.Sleep(700 * time.Millisecond) 
+		}
 		if session.WSPrivateConn == nil {
 			fmt.Println("❌ Not connected to chat server")
 			return
@@ -1195,32 +1200,135 @@ func getConversationFile(a, b string) string {
 	return fmt.Sprintf("dm_%s_%s.json", a, b)
 }
 
+// func doListenWS() {
+// 	privateRoom := "private_" + session.UserID
+// 	wsURL := fmt.Sprintf("%s?username=%s&userid=%s&room=%s",
+// 		WS_SERVER, session.Username, session.UserID, privateRoom)
+
+// 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+// 	if err != nil {
+// 		return
+// 	}
+
+// 	session.WSPrivateConn = conn
+
+// 	go func() {
+// 		for {
+// 			_, raw, err := conn.ReadMessage()
+// 			if err != nil {
+// 				session.WSPrivateConn = nil
+// 				return
+// 			}
+
+// 			var msg WSMessage
+// 			if json.Unmarshal(raw, &msg) != nil {
+// 				continue
+// 			}
+
+// 			switch msg.Type {
+// 			case "dm":
+// 				saveDM(LocalMessage{
+// 					Type:      "dm",
+// 					Sender:    msg.Sender,
+// 					Recipient: session.Username,
+// 					Content:   msg.Content,
+// 					Timestamp: msg.Timestamp,
+// 				})
+// 				unreadMu.Lock()
+// 				unreadDM++
+// 				unreadMu.Unlock()
+
+// 			case "error":
+// 				fmt.Printf("\n❌ DM error: %s\n", msg.Content)
+// 				fmt.Print("Choice: ")
+
+// 			case "dm_ack":
+// 				pendingMu.Lock()
+// 				_, exists := pendingDM[msg.ID]
+// 				if exists {
+// 					delete(pendingDM, msg.ID)
+// 				}
+// 				pendingMu.Unlock()
+
+// 				if msg.Content == "delivered" {
+// 					fmt.Println("\n✅ DM delivered")
+// 				} else {
+// 					fmt.Println("\n❌ DM failed")
+// 				}
+// 				fmt.Print("Choice: ")
+
+// 			case "list_all_users":
+// 				users := strings.Split(msg.Content, ", ")
+// 				userListChan <- users
+
+// 			}
+// 		}
+// 	}()
+
+// }
+
 func doListenWS() {
+	session.mu.Lock()
+	if session.WSPrivateConn != nil {
+		session.mu.Unlock()
+		return
+	}
+	session.mu.Unlock()
+
 	privateRoom := "private_" + session.UserID
 	wsURL := fmt.Sprintf("%s?username=%s&userid=%s&room=%s",
 		WS_SERVER, session.Username, session.UserID, privateRoom)
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
+		fmt.Println("❌ Cannot connect private WS:", err)
 		return
 	}
 
+	session.mu.Lock()
 	session.WSPrivateConn = conn
+	session.mu.Unlock()
+
+	fmt.Println("✅ Private WS connected successfully")
 
 	go func() {
+		defer func() {
+			session.mu.Lock()
+			session.WSPrivateConn = nil
+			session.mu.Unlock()
+		}()
+
 		for {
+			if session.Token == "" {
+				return
+			}
+
 			_, raw, err := conn.ReadMessage()
 			if err != nil {
-				session.WSPrivateConn = nil
+				if session.Token != "" {
+					fmt.Println("❌ Private WS disconnected")
+				}
 				return
 			}
 
 			var msg WSMessage
-			if json.Unmarshal(raw, &msg) != nil {
+			if err := json.Unmarshal(raw, &msg); err != nil {
 				continue
 			}
 
 			switch msg.Type {
+			case "list_all_users":
+				usersStr := strings.TrimSpace(msg.Content)
+				users := strings.Split(usersStr, ", ")
+				if usersStr == "" {
+					users = []string{}
+				}
+				select {
+				case userListChan <- users:
+				default:
+					
+				}
+
 			case "dm":
 				saveDM(LocalMessage{
 					Type:      "dm",
@@ -1251,15 +1359,9 @@ func doListenWS() {
 					fmt.Println("\n❌ DM failed")
 				}
 				fmt.Print("Choice: ")
-
-			case "list_all_users":
-				users := strings.Split(msg.Content, ", ")
-				userListChan <- users
-
 			}
 		}
 	}()
-
 }
 
 func isTokenExpired() bool {

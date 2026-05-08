@@ -118,22 +118,41 @@ func (c *Client) readPump() {
 	}
 }
 
+// func (h *ChatHub) sendAllUsers(c *Client) {
+// 	h.mu.RLock()
+// 	users := make([]string, 0, len(h.Clients))
+
+// 	for _, client := range h.Clients {
+// 		if client.UserID != c.UserID {
+// 			users = append(users, client.Username)
+// 		}
+// 	}
+// 	h.mu.RUnlock()
+
+// 	c.send <- mustJSON(ChatMessage{
+// 		Type:      "list_all_users",
+// 		Content:   strings.Join(users, ", "),
+// 		Timestamp: time.Now().Format("15:04:05"),
+// 	})
+// }
+
 func (h *ChatHub) sendAllUsers(c *Client) {
 	h.mu.RLock()
 	users := make([]string, 0, len(h.Clients))
-
 	for _, client := range h.Clients {
-		if client.UserID != c.UserID {
+		if client != nil && client.UserID != c.UserID {
 			users = append(users, client.Username)
 		}
 	}
 	h.mu.RUnlock()
 
-	c.send <- mustJSON(ChatMessage{
+	log.Printf("📤 Sending %d online users to %s", len(users), c.Username) // debug
+
+	safeSend(c, mustJSON(ChatMessage{
 		Type:      "list_all_users",
 		Content:   strings.Join(users, ", "),
 		Timestamp: time.Now().Format("15:04:05"),
-	})
+	}))
 }
 
 func (c *Client) writePump() {
@@ -175,71 +194,162 @@ func (h *ChatHub) Run() {
 	}
 }
 
+// func (h *ChatHub) register(c *Client) {
+// 	h.mu.Lock()
+// 	defer h.mu.Unlock()
+
+// 	// Close old session if exists
+// 	if old, exists := h.Clients[c.UserID]; exists {
+// 		close(old.send)
+// 	}
+
+// 	c.Room = normalizeRoom(c.Room)
+// 	h.Clients[c.UserID] = c
+// 	h.UsernameToUserID[c.Username] = c.UserID
+
+// 	if h.Rooms[c.Room] == nil {
+// 		h.Rooms[c.Room] = make(map[string]*Client)
+// 	}
+// 	h.Rooms[c.Room][c.UserID] = c
+
+// 	log.Printf("✅ %s joined room [%s]", c.Username, c.Room)
+
+// 	// Welcome
+// 	welcome := ChatMessage{
+// 		Type:      "system",
+// 		Content:   "Welcome to room [" + c.Room + "]!",
+// 		Timestamp: time.Now().Format("15:04:05"),
+// 	}
+// 	select {
+// 	case c.send <- mustJSON(welcome):
+// 	default:
+// 	}
+// }
+
 func (h *ChatHub) register(c *Client) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+    h.mu.Lock()
+    defer h.mu.Unlock()
 
-	// Close old session if exists
-	if old, exists := h.Clients[c.UserID]; exists {
-		close(old.send)
-	}
+    c.Room = normalizeRoom(c.Room)
+    isPrivate := strings.HasPrefix(c.Room, "private_")
 
-	c.Room = normalizeRoom(c.Room)
-	h.Clients[c.UserID] = c
-	h.UsernameToUserID[c.Username] = c.UserID
+    if old, exists := h.Clients[c.UserID]; exists {
+        oldIsPrivate := strings.HasPrefix(old.Room, "private_")
 
-	if h.Rooms[c.Room] == nil {
-		h.Rooms[c.Room] = make(map[string]*Client)
-	}
-	h.Rooms[c.Room][c.UserID] = c
+        if isPrivate && oldIsPrivate {
+            // Cả 2 đều private → close old (reconnect case)
+            if old.send != nil {
+                close(old.send)
+                old.send = nil
+            }
+        } else if !isPrivate && !oldIsPrivate {
+            // Cả 2 đều public → close old
+            if old.send != nil {
+                close(old.send)
+                old.send = nil
+            }
+        }
+        // Một private một public → giữ cả 2, chỉ update Clients nếu là private
+        // Public room connection KHÔNG ghi đè Clients[userID]
+    }
 
-	log.Printf("✅ %s joined room [%s]", c.Username, c.Room)
+    if isPrivate {
+        // Private connection là "chính" → lưu vào Clients
+        h.Clients[c.UserID] = c
+        h.UsernameToUserID[c.Username] = c.UserID
+    } else {
+        // Public connection → chỉ thêm vào Rooms, không ghi đè Clients
+        // nếu đã có private connection
+        if _, hasExisting := h.Clients[c.UserID]; !hasExisting {
+            h.Clients[c.UserID] = c
+            h.UsernameToUserID[c.Username] = c.UserID
+        }
+        if h.Rooms[c.Room] == nil {
+            h.Rooms[c.Room] = make(map[string]*Client)
+        }
+        h.Rooms[c.Room][c.UserID] = c
+    }
 
-	// Welcome
-	welcome := ChatMessage{
-		Type:      "system",
-		Content:   "Welcome to room [" + c.Room + "]!",
-		Timestamp: time.Now().Format("15:04:05"),
-	}
-	select {
-	case c.send <- mustJSON(welcome):
-	default:
-	}
+    log.Printf("✅ %s connected to [%s]", c.Username, c.Room)
+
+    safeSend(c, mustJSON(ChatMessage{
+        Type:      "system",
+        Content:   "Welcome to room [" + c.Room + "]!",
+        Timestamp: time.Now().Format("15:04:05"),
+    }))
 }
 
-func (h *ChatHub) unregister(c *Client) {
-	h.mu.Lock()
-
-	if _, ok := h.Clients[c.UserID]; !ok {
-		h.mu.Unlock()
+func safeSend(c *Client, msg []byte) {
+	if c == nil || c.send == nil {
 		return
 	}
-
-	delete(h.Clients, c.UserID)
-	delete(h.UsernameToUserID, c.Username)
-
-	room := c.Room
-	username := c.Username
-
-	if r, ok := h.Rooms[room]; ok {
-		delete(r, c.UserID)
-		if len(r) == 0 {
-			delete(h.Rooms, room)
-		}
+	select {
+	case c.send <- msg:
+	default:
+		log.Printf("[WARN] send channel full or closed for %s", c.Username)
 	}
-
-	h.mu.Unlock()
-
-	log.Printf("❌ %s disconnected", username)
-
-	h.broadcast(ChatMessage{
-		Type:      "leave",
-		Sender:    username,
-		Content:   username + " left the room",
-		Room:      room,
-		Timestamp: time.Now().Format("15:04:05"),
-	})
 }
+func (h *ChatHub) unregister(c *Client) {
+    h.mu.Lock()
+
+    current, ok := h.Clients[c.UserID]
+    if !ok {
+        h.mu.Unlock()
+        return
+    }
+
+    // Chỉ xử lý nếu đây đúng là connection đang được track
+    // (tránh trường hợp connection cũ bị unregister sau khi đã bị replace)
+    if current != c {
+        // Connection này đã bị replace bởi connection mới → chỉ xóa khỏi room
+        if r, ok := h.Rooms[c.Room]; ok {
+            delete(r, c.UserID)
+            if len(r) == 0 {
+                delete(h.Rooms, c.Room)
+            }
+        }
+        h.mu.Unlock()
+        log.Printf("⚠️  Stale unregister ignored for %s", c.Username)
+        return
+    }
+
+    isPrivate := strings.HasPrefix(c.Room, "private_")
+
+    if !isPrivate {
+        // Xóa khỏi public room
+        if r, ok := h.Rooms[c.Room]; ok {
+            delete(r, c.UserID)
+            if len(r) == 0 {
+                delete(h.Rooms, c.Room)
+            }
+        }
+        // KHÔNG xóa khỏi h.Clients và h.UsernameToUserID
+        // vì private connection vẫn đang dùng cùng key c.UserID
+        // → chỉ set nil để biết không còn public conn
+    } else {
+        // Private connection disconnect → xóa hẳn
+        delete(h.Clients, c.UserID)
+        delete(h.UsernameToUserID, c.Username)
+    }
+
+    room := c.Room
+    username := c.Username
+    h.mu.Unlock()
+
+    log.Printf("❌ %s left [%s]", username, room)
+
+    if !isPrivate {
+        h.broadcast(ChatMessage{
+            Type:      "leave",
+            Sender:    username,
+            Content:   username + " left the room",
+            Room:      room,
+            Timestamp: time.Now().Format("15:04:05"),
+        })
+    }
+}
+
+
 
 func (h *ChatHub) broadcast(msg ChatMessage) {
 	h.mu.RLock()

@@ -5,7 +5,7 @@ echo ========================================
 
 echo.
 echo [1] Register success
-curl -X POST http://localhost:8080/auth/register -H "Content-Type: application/json" -d "{\"username\": \"johndoe\", \"email\": \"john@gmail.com\", \"password\": \"12345678910\", \"RePassword\": \"12345678910\"}"
+curl -X POST http://localhost:8080/auth/register -H "Content-Type: application/json" -d "{\"username\": \"johndoe1\", \"email\": \"john@gmail.com\", \"password\": \"12345678910\", \"RePassword\": \"12345678910\"}"
 
 echo.
 echo [2] Register username duplicate
