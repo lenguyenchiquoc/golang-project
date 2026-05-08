@@ -190,8 +190,7 @@ func showMainMenu(scanner *bufio.Scanner) {
 	fmt.Println("1. Search manga")
 	fmt.Println("2. View my library")
 	fmt.Println("3. Add manga to library")
-	fmt.Println("4. Update reading progress")
-	fmt.Println("5. Chat")
+	fmt.Println("4. Chat")
 	fmt.Println("0. Logout")
 	fmt.Print("Choice: ")
 	if session.Token == "" {
@@ -204,12 +203,10 @@ func showMainMenu(scanner *bufio.Scanner) {
 	case "1":
 		doSearchManga(scanner)
 	case "2":
-		doGetLibrary()
+		doGetLibrary(scanner)
 	case "3":
 		doAddToLibrary(scanner)
 	case "4":
-		doUpdateProgress(scanner)
-	case "5":
 		chatMenu(scanner)
 	case "0":
 		doLogout()
@@ -258,7 +255,6 @@ func chatMenu(scanner *bufio.Scanner) {
 	}
 }
 
-// ====================== JOIN ROOM ======================
 
 func joinRoomFlow(scanner *bufio.Scanner) {
 	fmt.Println("\nAvailable rooms:")
@@ -866,7 +862,7 @@ func viewMangaDetailAndRate(scanner *bufio.Scanner, mangaID string) {
 		resp.Average, resp.Count)
 }
 
-func doGetLibrary() {
+func doGetLibrary(scanner *bufio.Scanner) {
 	if session.Token == "" {
             return 
     }
@@ -887,15 +883,31 @@ func doGetLibrary() {
 
 	fmt.Printf("\n📚 %s's library (%v manga):\n", session.Username, resp["total"])
 	fmt.Println("──────────────────────────────────────────────────────────")
+	var lst []string 
 	for i, item := range items {
 		m := item.(map[string]interface{})
 		fmt.Printf("%d. %s\n", i+1, m["title"])
 		fmt.Printf("   ID       : %s\n", m["manga_id"])
+		lst = append(lst, m["manga_id"].(string))
 		fmt.Printf("   Author   : %s\n", m["author"])
 		fmt.Printf("   Progress : Chapter %v / %v\n", m["current_chapter"], m["total_chapters"])
 		fmt.Printf("   Status   : %s\n", m["status"])
 		fmt.Println("──────────────────────────────────────────────────────────")
 	}
+
+	fmt.Println("─────────────────────────────────────────────────────")
+	fmt.Print("Choose manga to update progress (number, 0 to cancel): ")
+	scanner.Scan()
+	var choice int
+	fmt.Sscanf(scanner.Text(), "%d", &choice)
+
+	if choice <= 0 {
+		fmt.Println("❌ Cancel")
+		return
+	}
+	choose := lst[choice]
+	doUpdateProgress(scanner, choose)
+
 }
 
 func doAddToLibrary(scanner *bufio.Scanner) {
@@ -944,13 +956,11 @@ func doAddToLibrary(scanner *bufio.Scanner) {
 	}
 }
 
-func doUpdateProgress(scanner *bufio.Scanner) {
+func doUpdateProgress(scanner *bufio.Scanner, choose string) {
 	if session.Token == "" {
             return 
     }
-	fmt.Print("Enter Manga ID: ")
-	scanner.Scan()
-	mangaID := strings.TrimSpace(scanner.Text())
+	mangaID := strings.TrimSpace(choose)
 
 	fmt.Print("Current chapter: ")
 	scanner.Scan()
