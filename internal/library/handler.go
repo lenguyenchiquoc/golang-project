@@ -73,7 +73,7 @@ func (h *LibraryHandler) UpdateProgress(c *gin.Context) {
         if strings.Contains(err.Error(), "exist") || strings.Contains(err.Error(), "invalid") {
             c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         } else {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "Error update/ pls check input or internal server is error"})
         }
         return
     }

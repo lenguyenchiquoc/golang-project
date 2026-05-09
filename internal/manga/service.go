@@ -317,3 +317,64 @@ func (m *MangaService) RateManga(userID, mangaID string, rating int32) (*models.
 		Count:   count,
 	}, nil
 }
+
+func (m *MangaService) UpdateManga(id string, req models.UpdateMangaRequest) (*models.Manga, error) {
+    _, err := m.GetMangaByID(id)
+    if err != nil {
+        return nil, errors.New("manga not found")
+    }
+
+    _, err = m.DB.Exec(`
+        UPDATE manga 
+        SET title = COALESCE(NULLIF(?, ''), title),
+            author = COALESCE(NULLIF(?, ''), author),
+            status = COALESCE(NULLIF(?, ''), status),
+            total_chapters = CASE WHEN ? > 0 THEN ? ELSE total_chapters END,
+            description = COALESCE(NULLIF(?, ''), description),
+            cover_url = COALESCE(NULLIF(?, ''), cover_url)
+        WHERE id = ?`,
+        req.Title,
+        req.Author,
+        req.Status,
+        req.TotalChapters, req.TotalChapters,
+        req.Description,
+        req.Cover_url,
+        id,
+    )
+    if err != nil {
+        return nil, errors.New("failed to update manga: " + err.Error())
+    }
+
+    if len(req.Genres) > 0 {
+        _, err = m.DB.Exec(`DELETE FROM manga_genres WHERE manga_id = ?`, id)
+        if err != nil {
+            return nil, err
+        }
+
+        for _, g := range req.Genres {
+            g = strings.ToLower(strings.TrimSpace(g))
+            if g == "" {
+                continue
+            }
+
+            var genreID string
+            err := m.DB.QueryRow(`SELECT id FROM genres WHERE name = ?`, g).Scan(&genreID)
+            if err == sql.ErrNoRows {
+                genreID = uuid.New().String()
+                _, err = m.DB.Exec(`INSERT INTO genres (id, name) VALUES (?, ?)`, genreID, g)
+                if err != nil {
+                    return nil, err
+                }
+            } else if err != nil {
+                return nil, err
+            }
+
+            _, err = m.DB.Exec(`INSERT INTO manga_genres (manga_id, genre_id) VALUES (?, ?)`, id, genreID)
+            if err != nil {
+                return nil, err
+            }
+        }
+    }
+
+    return m.GetMangaByID(id)
+}

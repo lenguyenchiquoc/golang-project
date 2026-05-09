@@ -3,6 +3,7 @@ package library
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"managahub/internal/tcp"
@@ -96,24 +97,32 @@ func (s *LibraryService) GetLibrary(userID string) ([]models.LibraryItem, error)
 }
 
 func (s *LibraryService) UpdateProgress(userID string, req models.UpdateProgressRequest) error {
-	var count int
+	var totalChapters int
 	err := s.DB.QueryRow(
-		`SELECT COUNT(*) FROM user_progress WHERE user_id = ? AND manga_id = ?`,
+		`SELECT m.total_chapters 
+		 FROM user_progress up
+		 JOIN manga m ON up.manga_id = m.id
+		 WHERE up.user_id = ? AND up.manga_id = ?`,
 		userID, req.MangaID,
-	).Scan(&count)
-	if err != nil {
-		return errors.New("Database is error: " + err.Error())
-	}
-	if count == 0 {
+	).Scan(&totalChapters)
+
+	if err == sql.ErrNoRows {
 		return errors.New("Manga is not existed in library")
+	}
+	if err != nil {
+		return errors.New("Database error: " + err.Error())
 	}
 
 	if req.CurrentChapter < 0 {
-		return errors.New("No of chapter is not posible")
+		return errors.New("Chapter number cannot be negative")
+	}
+
+	if totalChapters > 0 && req.CurrentChapter > totalChapters {
+		return fmt.Errorf("Chapter %d exceeds total chapters (%d)", req.CurrentChapter, totalChapters)
 	}
 
 	if req.Status != "" && !isValidStatus(req.Status) {
-		return errors.New("Invalid status ")
+		return errors.New("Invalid status")
 	}
 
 	if req.Status == "" {
@@ -134,14 +143,14 @@ func (s *LibraryService) UpdateProgress(userID string, req models.UpdateProgress
 		return errors.New("Can not update progress " + err.Error())
 	}
 	if s.TCPServer != nil {
-    s.TCPServer.BroadcastProgress(tcp.ProgressUpdate{
-        UserID:         userID,
-        MangaID:        req.MangaID,
-        CurrentChapter: req.CurrentChapter,
-        Status:         req.Status,
-        Timestamp:      time.Now().Unix(),
-    })
-}
+		s.TCPServer.BroadcastProgress(tcp.ProgressUpdate{
+			UserID:         userID,
+			MangaID:        req.MangaID,
+			CurrentChapter: req.CurrentChapter,
+			Status:         req.Status,
+			Timestamp:      time.Now().Unix(),
+		})
+	}
 	return nil
 }
 

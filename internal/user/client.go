@@ -901,11 +901,12 @@ func doGetLibrary(scanner *bufio.Scanner) {
 	var choice int
 	fmt.Sscanf(scanner.Text(), "%d", &choice)
 
-	if choice <= 0 {
-		fmt.Println("❌ Cancel")
+	if choice <= 0 || choice > len(lst) {
+		fmt.Println("❌ Cancel b/c invalid input")
 		return
 	}
-	choose := lst[choice]
+	choose := lst[choice-1]
+	
 	doUpdateProgress(scanner, choose)
 
 }

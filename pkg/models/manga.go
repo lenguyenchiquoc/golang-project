@@ -41,3 +41,12 @@ type RatingResponse struct {
 	Average float32 `json:"average"`
 	Count   int32   `json:"count"`
 }
+type UpdateMangaRequest struct {
+    Title         string   `json:"title"`
+    Author        string   `json:"author"`
+    Status        string   `json:"status"`
+    TotalChapters int      `json:"total_chapters"`
+    Description   string   `json:"description"`
+    Cover_url     string   `json:"cover_url"`
+    Genres        []string `json:"genres"`
+}

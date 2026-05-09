@@ -58,6 +58,7 @@ func Run(tcpServer *tcp.ProgressSyncServer, udpServer *udp.NotificationServer, w
 		protected.PUT("/users/progress", libraryHandler.UpdateProgress)
 		protected.POST("/notify", notifyHandler.SendNotification)
 		protected.POST("/manga/rate", mangaHandler.RateManga)
+		protected.PUT("/manga/:id", mangaHandler.UpdateManga)
 	}
 	log.Println("HTTP API Server running at http://localhost:8080")
 	log.Println("WebSocket Chat running at ws://localhost:8080/ws")

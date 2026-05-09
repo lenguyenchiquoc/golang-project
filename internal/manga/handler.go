@@ -1,10 +1,12 @@
 package manga
- 
+
 import (
 	"net/http"
- 
-	"github.com/gin-gonic/gin"
+	"strings"
+
 	"managahub/pkg/models"
+
+	"github.com/gin-gonic/gin"
 )
  
 type MangaHandler struct {
@@ -82,4 +84,30 @@ func (h *MangaHandler) RateManga(c *gin.Context) {
 	}
 
 	c.JSON(200, result)
+}
+
+// PUT /manga/:id
+func (h *MangaHandler) UpdateManga(c *gin.Context) {
+    id := c.Param("id")
+
+    var req models.UpdateMangaRequest
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+        return
+    }
+
+    manga, err := h.Service.UpdateManga(id, req)
+    if err != nil {
+        if strings.Contains(err.Error(), "not found") {
+            c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+        } else {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        }
+        return
+    }
+
+    c.JSON(http.StatusOK, gin.H{
+        "message": "Updated successfully",
+        "manga":   manga,
+    })
 }
