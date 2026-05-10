@@ -1,0 +1,23 @@
+[
+  {
+    "type": "dm",
+    "sender": "test12",
+    "recipient": "johndoe",
+    "content": "hello",
+    "timestamp": "14:41:05"
+  },
+  {
+    "type": "dm",
+    "sender": "test12",
+    "recipient": "johndoe",
+    "content": "welcome",
+    "timestamp": "14:41:32"
+  },
+  {
+    "type": "dm",
+    "sender": "test12",
+    "recipient": "johndoe",
+    "content": "i have a question",
+    "timestamp": "14:42:48"
+  }
+]

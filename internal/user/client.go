@@ -191,8 +191,7 @@ func showMainMenu(scanner *bufio.Scanner) {
 	fmt.Printf("\n=== WELCOME %s ===\n", strings.ToUpper(session.Username))
 	fmt.Println("1. Search manga")
 	fmt.Println("2. View my library")
-	fmt.Println("3. Add manga to library")
-	fmt.Println("4. Chat")
+	fmt.Println("3. Chat")
 	fmt.Println("0. Logout")
 	fmt.Print("Choice: ")
 	if session.Token == "" {
@@ -207,8 +206,6 @@ func showMainMenu(scanner *bufio.Scanner) {
 	case "2":
 		doGetLibrary(scanner)
 	case "3":
-		doAddToLibrary(scanner)
-	case "4":
 		chatMenu(scanner)
 	case "0":
 		doLogout()
@@ -295,7 +292,7 @@ func joinRoomFlow(scanner *bufio.Scanner) {
 	client := newChatClient(conn, session.Username, room)
 
 	fmt.Printf("\n=== Joined room: %s ===\n", room)
-	fmt.Println("Commands: /users | /rooms | /switch <room> | /leave | /exit | /help")
+	fmt.Println("Commands: /users | /rooms | /switch <room> | /leave  | /help")
 
 	go client.writeLoop()
 	go client.readLoop()
@@ -337,12 +334,6 @@ func roomLoop(scanner *bufio.Scanner, client *ChatClient) {
 			client.close()
 			fmt.Println("👋 Left the room")
 			return
-
-		case text == "/exit":
-			client.close()
-			fmt.Println("👋 Exited chat")
-			os.Exit(0)
-
 		case text == "/users":
 			client.send <- WSMessage{Type: "list_users"}
 
@@ -363,7 +354,6 @@ func roomLoop(scanner *bufio.Scanner, client *ChatClient) {
 			fmt.Printf("=== Switching to room: %s ===\n", newRoom)
 
 		default:
-			// Normal chat message
 			client.send <- WSMessage{
 				Type:    "chat",
 				Content: text,
@@ -736,7 +726,7 @@ func readInt(scanner *bufio.Scanner, prompt string, defaultVal int32) (int32, bo
 		var val int32
 		_, err := fmt.Sscanf(input, "%d", &val)
 		if err != nil || val <= 0 {
-			fmt.Println("⚠️  Vui long nhap so nguyen duong!")
+			fmt.Println("⚠️  Input positive number!")
 			continue
 		}
 		return val, true
@@ -756,7 +746,7 @@ func readString(scanner *bufio.Scanner, prompt string, optional bool) (string, b
 			if optional {
 				return "", true
 			}
-			fmt.Println("⚠️  Khong duoc de trong!")
+			fmt.Println("⚠️  	Can not empty!")
 			continue
 		}
 
@@ -875,7 +865,35 @@ func doSearchManga(scanner *bufio.Scanner) {
 	}
 
 	selected := resp.Mangas[choice-1]
-	viewMangaDetailAndRate(scanner, selected.Id)
+	fmt.Println("\nWhat do you want to do?")
+	fmt.Println("1. View detail & Rate")
+	fmt.Println("2. Add to library")
+	fmt.Println("0. Cancel")
+	fmt.Print("Choice: ")
+	var action int
+	for {
+		if session.Token == "" {
+			return
+		}
+		scanner.Scan()
+		input := strings.TrimSpace(scanner.Text())
+		_, err := fmt.Sscanf(input, "%d", &action)
+		if err != nil || action < 0 || action > 2 {
+			fmt.Println("⚠️  Please enter 0, 1 or 2!")
+			fmt.Print("Choice: ")
+			continue
+		}
+		break
+	}
+
+	switch action {
+	case 1:
+		viewMangaDetailAndRate(scanner, selected.Id)
+	case 2:
+		doAddToLibrary(scanner, selected.Id)
+	case 0:
+		fmt.Println("❌ Cancel")
+	}
 }
 
 func viewMangaDetailAndRate(scanner *bufio.Scanner, mangaID string) {
@@ -907,18 +925,15 @@ func viewMangaDetailAndRate(scanner *bufio.Scanner, mangaID string) {
 	fmt.Printf("⭐ Rating: %.1f (%d votes)\n", m.AverageRating, m.RatingCount)
 	fmt.Println("────────────────────────────────────────")
 
-	fmt.Print("Do you want to rate this manga? (y/n): ")
-	scanner.Scan()
-	ans := strings.TrimSpace(scanner.Text())
+	ans, ok := readString(scanner, "Do you want to rate this manga? (y/n): ", false)
+	if !ok { return }
 
 	if ans != "y" && ans != "Y" {
 		return
 	}
 
-	fmt.Print("Enter rating (1-10): ")
-	scanner.Scan()
-	var rating int32
-	fmt.Sscanf(scanner.Text(), "%d", &rating)
+	rating, ok := readInt(scanner, "Enter rating 1-10 (default 10): ", 10)
+	if !ok { return }
 
 	resp, err := mangaGRPC.RateManga(session.UserID, mangaID, rating)
 	if err != nil {
@@ -984,14 +999,10 @@ func doGetLibrary(scanner *bufio.Scanner) {
 
 }
 
-func doAddToLibrary(scanner *bufio.Scanner) {
+func doAddToLibrary(scanner *bufio.Scanner, mangaID string) {
 	if session.Token == "" {
             return 
     }
-	fmt.Print("Enter Manga ID: ")
-	scanner.Scan()
-	mangaID := strings.TrimSpace(scanner.Text())
-
 	fmt.Println("Status:")
 	fmt.Println("1. reading")
 	fmt.Println("2. completed")
