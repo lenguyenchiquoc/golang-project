@@ -111,66 +111,98 @@ func (s *MangaGRPCServer) SearchManga(ctx context.Context, req *pb.SearchRequest
 		req.Limit = 10
 	}
 
-	query := `
-		SELECT 
-			m.id, m.title, m.author, m.status, m.total_chapters, m.description, m.cover_url,
-			g.id, g.name
-		FROM manga m
+	// Bước 1: Lấy danh sách manga ID trước với LIMIT/OFFSET
+	idQuery := `SELECT DISTINCT m.id FROM manga m
 		LEFT JOIN manga_genres mg ON m.id = mg.manga_id
 		LEFT JOIN genres g ON mg.genre_id = g.id
-		WHERE 1=1
-	`
+		WHERE 1=1`
 
 	args := []interface{}{}
 
 	if req.Query != "" {
-		query += " AND (m.title LIKE ? OR m.author LIKE ?)"
+		idQuery += " AND (m.title LIKE ? OR m.author LIKE ?)"
 		args = append(args, "%"+req.Query+"%", "%"+req.Query+"%")
 	}
 
 	if len(req.Genre) > 0 {
-		query += " AND g.name IN ("
+		idQuery += " AND g.name IN ("
 		for i := range req.Genre {
-			query += "?"
+			idQuery += "?"
 			if i < len(req.Genre)-1 {
-				query += ","
+				idQuery += ","
 			}
 			args = append(args, req.Genre[i])
 		}
-		query += ")"
+		idQuery += ")"
 	}
 
 	if req.Status != "" {
-		query += " AND m.status = ?"
+		idQuery += " AND m.status = ?"
 		args = append(args, req.Status)
 	}
 
-	query += " ORDER BY m.title ASC LIMIT ? OFFSET ?"
+	// Đếm total
+	countQuery := "SELECT COUNT(*) FROM (" + idQuery + ") as sub"
+	var total int32
+	s.DB.QueryRowContext(ctx, countQuery, args...).Scan(&total)
 
+	// Lấy ID với đúng LIMIT/OFFSET
 	offset := (req.Page - 1) * req.Limit
-	args = append(args, req.Limit, offset)
+	idQuery += " ORDER BY m.id ASC LIMIT ? OFFSET ?"
+	idArgs := append(args, req.Limit, offset)
 
-	rows, err := s.DB.QueryContext(ctx, query, args...)
+	idRows, err := s.DB.QueryContext(ctx, idQuery, idArgs...)
+	if err != nil {
+		return nil, errors.New("database error: " + err.Error())
+	}
+
+	var ids []string
+	for idRows.Next() {
+		var id string
+		idRows.Scan(&id)
+		ids = append(ids, id)
+	}
+	idRows.Close()
+
+	if len(ids) == 0 {
+		return &pb.SearchResponse{Mangas: []*pb.MangaResponse{}, Total: 0}, nil
+	}
+
+	// Bước 2: Lấy full data cho các ID đó
+	placeholder := strings.Repeat("?,", len(ids))
+	placeholder = placeholder[:len(placeholder)-1]
+
+	dataQuery := fmt.Sprintf(`
+		SELECT m.id, m.title, m.author, m.status, m.total_chapters, m.description, m.cover_url,
+			g.id, g.name
+		FROM manga m
+		LEFT JOIN manga_genres mg ON m.id = mg.manga_id
+		LEFT JOIN genres g ON mg.genre_id = g.id
+		WHERE m.id IN (%s)
+		ORDER BY m.title ASC`, placeholder)
+
+	dataArgs := make([]interface{}, len(ids))
+	for i, id := range ids {
+		dataArgs[i] = id
+	}
+
+	rows, err := s.DB.QueryContext(ctx, dataQuery, dataArgs...)
 	if err != nil {
 		return nil, errors.New("database error: " + err.Error())
 	}
 	defer rows.Close()
 
 	mangaMap := map[string]*pb.MangaResponse{}
+	orderMap := []string{} // giữ thứ tự
 
 	for rows.Next() {
 		var (
 			id, title, author, status, desc, cover string
-			total                                  int32
+			total_ch                               int32
 			gID                                    sql.NullString
 			gName                                  sql.NullString
 		)
-
-		err := rows.Scan(
-			&id, &title, &author, &status,
-			&total, &desc, &cover,
-			&gID, &gName,
-		)
+		err := rows.Scan(&id, &title, &author, &status, &total_ch, &desc, &cover, &gID, &gName)
 		if err != nil {
 			continue
 		}
@@ -181,11 +213,12 @@ func (s *MangaGRPCServer) SearchManga(ctx context.Context, req *pb.SearchRequest
 				Title:         title,
 				Author:        author,
 				Status:        status,
-				TotalChapters: total,
+				TotalChapters: total_ch,
 				Description:   desc,
 				CoverUrl:      cover,
 				Genres:        []*pb.Genre{},
 			}
+			orderMap = append(orderMap, id)
 		}
 
 		if gID.Valid {
@@ -196,14 +229,14 @@ func (s *MangaGRPCServer) SearchManga(ctx context.Context, req *pb.SearchRequest
 		}
 	}
 
-	result := []*pb.MangaResponse{}
-	for _, m := range mangaMap {
-		result = append(result, m)
+	result := make([]*pb.MangaResponse, 0, len(orderMap))
+	for _, id := range orderMap {
+		result = append(result, mangaMap[id])
 	}
 
 	return &pb.SearchResponse{
 		Mangas: result,
-		Total:  int32(len(result)),
+		Total:  total,
 	}, nil
 }
 

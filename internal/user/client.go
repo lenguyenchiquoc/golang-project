@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	grpcserver "managahub/internal/grpc"
+	"unicode"
+
 	// pb "managahub/pkg/proto/managahub/pkg/proto"
 	"net"
 	"net/http"
@@ -16,9 +18,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
-	"github.com/golang-jwt/jwt/v4"
 )
 
 const (
@@ -370,7 +372,6 @@ func roomLoop(scanner *bufio.Scanner, client *ChatClient) {
 	}
 }
 
-// ====================== SEND DM DIRECTLY ======================
 var lastUserList []string
 
 func sendDMFlow(scanner *bufio.Scanner) {
@@ -721,29 +722,88 @@ func doLogout() {
 
 // ====================== MANGA FUNCTIONS ======================
 
+func readInt(scanner *bufio.Scanner, prompt string, defaultVal int32) (int32, bool) {
+	for {
+		if session.Token == "" {
+			return 0, false
+		}
+		fmt.Print(prompt)
+		scanner.Scan()
+		input := strings.TrimSpace(scanner.Text())
+		if input == "" {
+			return defaultVal, true
+		}
+		var val int32
+		_, err := fmt.Sscanf(input, "%d", &val)
+		if err != nil || val <= 0 {
+			fmt.Println("⚠️  Vui long nhap so nguyen duong!")
+			continue
+		}
+		return val, true
+	}
+}
+
+func readString(scanner *bufio.Scanner, prompt string, optional bool) (string, bool) {
+	for {
+		if session.Token == "" {
+			return "", false
+		}
+		fmt.Print(prompt)
+		scanner.Scan()
+		input := strings.TrimSpace(scanner.Text())
+
+		if input == "" {
+			if optional {
+				return "", true
+			}
+			fmt.Println("⚠️  Khong duoc de trong!")
+			continue
+		}
+
+		hasLetter := false
+		for _, c := range input {
+			if unicode.IsLetter(c) {
+				hasLetter = true
+				break
+			}
+		}
+		if !hasLetter {
+			fmt.Println("⚠️  Khong duoc nhap toan so, vui long nhap chu!")
+			continue
+		}
+
+		return input, true
+	}
+}
+
+func readStatus(scanner *bufio.Scanner) (string, bool) {
+	for {
+		if session.Token == "" {
+			return "", false
+		}
+		fmt.Print("Enter status (ongoing/completed, optional): ")
+		scanner.Scan()
+		status := strings.TrimSpace(scanner.Text())
+		if status == "" || status == "ongoing" || status == "completed" {
+			return status, true
+		}
+		fmt.Println("⚠️  Vui long nhap 'ongoing', 'completed' hoac bo trong!")
+	}
+}
+
 func doSearchManga(scanner *bufio.Scanner) {
 	if session.Token == "" {
-            return 
-    }
-	fmt.Print("Results per page (default 10): ")
-	scanner.Scan()
-	limitStr := strings.TrimSpace(scanner.Text())
-
-	limit := int32(10)
-	if limitStr != "" {
-		fmt.Sscanf(limitStr, "%d", &limit)
+		return
 	}
 
-	// query
-	fmt.Print("Enter manga name or author: ")
-	scanner.Scan()
-	query := strings.TrimSpace(scanner.Text())
+	limit, ok := readInt(scanner, "Results per page (default 10): ", 10)
+	if !ok { return }
 
-	// genre (multi)
-	fmt.Print("Enter genres (comma separated, optional): ")
-	scanner.Scan()
-	genreInput := strings.TrimSpace(scanner.Text())
+	query, ok := readString(scanner, "Enter manga name or author (optional): ", true)
+	if !ok { return }
 
+	genreInput, ok := readString(scanner, "Enter genres (comma separated, optional): ", true)
+	if !ok { return }
 	var genres []string
 	if genreInput != "" {
 		for _, g := range strings.Split(genreInput, ",") {
@@ -751,10 +811,8 @@ func doSearchManga(scanner *bufio.Scanner) {
 		}
 	}
 
-	// status
-	fmt.Print("Enter status (ongoing/completed, optional): ")
-	scanner.Scan()
-	status := strings.TrimSpace(scanner.Text())
+	status, ok := readStatus(scanner)
+	if !ok { return }
 
 	resp, err := mangaGRPC.SearchManga(query, genres, status, 1, limit)
 	if err != nil {
@@ -774,8 +832,6 @@ func doSearchManga(scanner *bufio.Scanner) {
 		fmt.Printf("%d. [%s] %s - %s (%d chapters) [%s]\n",
 			i+1, m.Id, m.Title, m.Author, m.TotalChapters, m.Status,
 		)
-
-		// in genres
 		if len(m.Genres) > 0 {
 			fmt.Print("   Genres: ")
 			for j, g := range m.Genres {
@@ -790,18 +846,35 @@ func doSearchManga(scanner *bufio.Scanner) {
 
 	fmt.Println("─────────────────────────────────────────────────────")
 
-	fmt.Print("Choose manga (number, 0 to cancel): ")
-	scanner.Scan()
 	var choice int
-	fmt.Sscanf(scanner.Text(), "%d", &choice)
+	for {
+		fmt.Printf("Choose manga (1-%d, 0 to cancel): ", len(resp.Mangas))
+		if session.Token == "" {
+			return
+		}
+		scanner.Scan()
+		if session.Token == "" {
+			return
+		}
+		input := strings.TrimSpace(scanner.Text())
+		_, err := fmt.Sscanf(input, "%d", &choice)
+		if err != nil {
+			fmt.Println("⚠️  Please enter number!")
+			continue
+		}
+		if choice < 0 || choice > len(resp.Mangas) {
+			fmt.Printf("⚠️  Please enter 0 to %d!\n", len(resp.Mangas))
+			continue
+		}
+		break
+	}
 
-	if choice <= 0 || choice > len(resp.Mangas) {
+	if choice == 0 {
 		fmt.Println("❌ Cancel")
 		return
 	}
 
 	selected := resp.Mangas[choice-1]
-
 	viewMangaDetailAndRate(scanner, selected.Id)
 }
 
