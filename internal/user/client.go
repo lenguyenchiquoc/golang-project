@@ -97,7 +97,6 @@ var pendingMu sync.Mutex
 var userListChan = make(chan []string)
 var mangaGRPC *grpcserver.MangaGRPCClient
 
-// ====================== MAIN ======================
 
 func main() {
 	fmt.Println("╔════════════════════════════════════╗")
@@ -1007,15 +1006,24 @@ func doAddToLibrary(scanner *bufio.Scanner, mangaID string) {
 	fmt.Println("1. reading")
 	fmt.Println("2. completed")
 	fmt.Println("3. plan_to_read")
-	fmt.Print("Choice: ")
-	scanner.Scan()
-	statusChoice := strings.TrimSpace(scanner.Text())
 
 	statusMap := map[string]string{"1": "reading", "2": "completed", "3": "plan_to_read"}
-	status := statusMap[statusChoice]
-	if status == "" {
-		fmt.Println("❌ Invalid choice")
-		return
+	var status string
+	for {
+		if session.Token == "" {
+			return
+		}
+		fmt.Print("Choice: ")
+		scanner.Scan()
+		if session.Token == "" {
+			return
+		}
+		statusChoice := strings.TrimSpace(scanner.Text())
+		status = statusMap[statusChoice]
+		if status != "" {
+			break
+		}
+		fmt.Println("⚠️  Vui long nhap 1, 2 hoac 3!")
 	}
 
 	body := map[string]interface{}{
@@ -1176,6 +1184,11 @@ func doRegisterUDP() {
 			case "chapter_release":
 				t := time.Unix(notification.Timestamp, 0).Format("15:04:05")
 				fmt.Printf("\n🔔 [UDP][%s] %s - %s\n",
+					t, notification.MangaTitle, notification.Message)
+				fmt.Print("Choice: ")
+			case "new_manga":
+				t := time.Unix(notification.Timestamp, 0).Format("15:04:05")
+				fmt.Printf("\n🆕 [UDP][%s] New manga: %s - %s\n",
 					t, notification.MangaTitle, notification.Message)
 				fmt.Print("Choice: ")
 			}
