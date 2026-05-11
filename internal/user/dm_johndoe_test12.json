@@ -19,5 +19,12 @@
     "recipient": "johndoe",
     "content": "i have a question",
     "timestamp": "14:42:48"
+  },
+  {
+    "type": "dm",
+    "sender": "johndoe",
+    "recipient": "test12",
+    "content": "joijw",
+    "timestamp": "08:34:18"
   }
 ]

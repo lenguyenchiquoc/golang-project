@@ -41,7 +41,7 @@ func (h *MangaHandler) CreateManga(c *gin.Context) {
 			Type:       "new_manga", 
 			MangaID:    manga.ID,
 			MangaTitle: manga.Title,
-			Message:    "Read it, guys" + manga.Title,
+			Message:    "Read it, guys1" + manga.Title,
 			Timestamp:  time.Now().Unix(),
 		})
 	}

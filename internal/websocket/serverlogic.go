@@ -118,24 +118,6 @@ func (c *Client) readPump() {
 	}
 }
 
-// func (h *ChatHub) sendAllUsers(c *Client) {
-// 	h.mu.RLock()
-// 	users := make([]string, 0, len(h.Clients))
-
-// 	for _, client := range h.Clients {
-// 		if client.UserID != c.UserID {
-// 			users = append(users, client.Username)
-// 		}
-// 	}
-// 	h.mu.RUnlock()
-
-// 	c.send <- mustJSON(ChatMessage{
-// 		Type:      "list_all_users",
-// 		Content:   strings.Join(users, ", "),
-// 		Timestamp: time.Now().Format("15:04:05"),
-// 	})
-// }
-
 func (h *ChatHub) sendAllUsers(c *Client) {
 	h.mu.RLock()
 	users := make([]string, 0, len(h.Clients))
@@ -146,7 +128,7 @@ func (h *ChatHub) sendAllUsers(c *Client) {
 	}
 	h.mu.RUnlock()
 
-	log.Printf("📤 Sending %d online users to %s", len(users), c.Username) // debug
+	log.Printf("📤 Sending %d online users to %s", len(users), c.Username)
 
 	safeSend(c, mustJSON(ChatMessage{
 		Type:      "list_all_users",
@@ -352,10 +334,8 @@ func (h *ChatHub) unregister(c *Client) {
 	userID := c.UserID
 
 	if !isPrivate {
-		// Unlock trước, broadcast sau rồi mới xóa
 		h.mu.Unlock()
 
-		// Broadcast leave TRƯỚC khi xóa khỏi room
 		h.broadcastExclude(ChatMessage{
 			Type:      "leave",
 			Sender:    username,
@@ -364,7 +344,6 @@ func (h *ChatHub) unregister(c *Client) {
 			Timestamp: time.Now().Format("15:04:05"),
 		}, userID)
 
-		// Sau đó mới xóa
 		h.mu.Lock()
 		if r, ok := h.Rooms[room]; ok {
 			delete(r, userID)
