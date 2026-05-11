@@ -61,14 +61,14 @@ func (s *ProgressSyncServer) HandleMessages() {
 			s.mu.Lock()
 			s.Clients[client.UserID] = client
 			s.mu.Unlock()
-			log.Printf("✓ Client kết nối: %s (%s)\n", client.Username, client.UserID)
+			log.Printf("✓ Can not connect client: %s (%s)\n", client.Username, client.UserID)
 
 		case client := <-s.Unregister:
 			s.mu.Lock()
 			delete(s.Clients, client.UserID)
 			s.mu.Unlock()
 			client.Conn.Close()
-			log.Printf("✗ Client ngắt kết nối: %s\n", client.Username)
+			log.Printf("✗ Client disconnected: %s\n", client.Username)
 
 		case update := <-s.Broadcast:
 			s.mu.Lock()
@@ -82,7 +82,7 @@ func (s *ProgressSyncServer) HandleMessages() {
 
 				_, err := client.Conn.Write(data)
 				if err != nil {
-					log.Println("Lỗi gửi đến client:", client.Username)
+					log.Println("Error send to client:", client.Username)
 				}
 			}
 			s.mu.Unlock()
@@ -101,7 +101,7 @@ func (s *ProgressSyncServer) HandleClient(conn net.Conn) {
 		}
 	}()
 
-	welcome := Message{Type: "welcome", Payload: "Kết nối TCP thành công!"}
+	welcome := Message{Type: "welcome", Payload: "TCP connect success!"}
 	data, _ := json.Marshal(welcome)
 	conn.Write(append(data, '\n'))
 
@@ -123,7 +123,7 @@ func (s *ProgressSyncServer) HandleClient(conn net.Conn) {
 			client.Username = auth.Username
 			s.Register <- client
 
-			resp := Message{Type: "auth_success", Payload: "Đã xác thực thành công!"}
+			resp := Message{Type: "auth_success", Payload: "Success auth!"}
 			data, _ := json.Marshal(resp)
 			conn.Write(append(data, '\n'))
 

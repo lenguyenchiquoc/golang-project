@@ -12,10 +12,10 @@ func Run() *tcp.ProgressSyncServer {
 
 	listener, err := net.Listen("tcp", ":9090")
 	if err != nil {
-		log.Fatal("Không thể khởi động TCP server:", err)
+		log.Fatal("can not run TCP server:", err)
 	}
 
-	log.Println("✓ TCP Sync Server đang chạy tại port 9090")
+	log.Println("✓ TCP Sync Server is running at port 9090")
 
 	go server.HandleMessages()
 
@@ -24,7 +24,7 @@ func Run() *tcp.ProgressSyncServer {
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				log.Println("Lỗi accept connection:", err)
+				log.Println("Errror accept connection:", err)
 				continue
 			}
 			go server.HandleClient(conn)

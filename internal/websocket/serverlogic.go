@@ -161,7 +161,6 @@ func (c *Client) writePump() {
 	}
 }
 
-// ================= HUB =================
 
 func (h *ChatHub) Run() {
 	for {
@@ -176,37 +175,6 @@ func (h *ChatHub) Run() {
 	}
 }
 
-// func (h *ChatHub) register(c *Client) {
-// 	h.mu.Lock()
-// 	defer h.mu.Unlock()
-
-// 	// Close old session if exists
-// 	if old, exists := h.Clients[c.UserID]; exists {
-// 		close(old.send)
-// 	}
-
-// 	c.Room = normalizeRoom(c.Room)
-// 	h.Clients[c.UserID] = c
-// 	h.UsernameToUserID[c.Username] = c.UserID
-
-// 	if h.Rooms[c.Room] == nil {
-// 		h.Rooms[c.Room] = make(map[string]*Client)
-// 	}
-// 	h.Rooms[c.Room][c.UserID] = c
-
-// 	log.Printf("✅ %s joined room [%s]", c.Username, c.Room)
-
-// 	// Welcome
-// 	welcome := ChatMessage{
-// 		Type:      "system",
-// 		Content:   "Welcome to room [" + c.Room + "]!",
-// 		Timestamp: time.Now().Format("15:04:05"),
-// 	}
-// 	select {
-// 	case c.send <- mustJSON(welcome):
-// 	default:
-// 	}
-// }
 
 func (h *ChatHub) register(c *Client) {
 	h.mu.Lock()
@@ -375,7 +343,6 @@ func (h *ChatHub) broadcast(msg ChatMessage) {
 		select {
 		case client.send <- mustJSON(msg):
 		default:
-			// client chậm
 		}
 	}
 	h.mu.RUnlock()
@@ -482,7 +449,6 @@ func (h *ChatHub) sendUserList(c *Client) {
 	})
 }
 
-// ================= UTILS =================
 
 func normalizeRoom(r string) string {
 	r = strings.TrimSpace(strings.ToLower(r))
@@ -497,7 +463,6 @@ func mustJSON(v interface{}) []byte {
 	return data
 }
 
-// ================= HANDLER =================
 
 func (h *ChatHub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	username := r.URL.Query().Get("username")

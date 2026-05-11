@@ -322,7 +322,6 @@ func roomLoop(scanner *bufio.Scanner, client *ChatClient) {
 
 		switch {
 		case text == "/help":
-			fmt.Println("  /dm <username> <message>   → Send private message")
 			fmt.Println("  /users                     → List users in current room")
 			fmt.Println("  /rooms                     → List all active rooms")
 			fmt.Println("  /switch <room>             → Switch to another room")
@@ -440,7 +439,6 @@ func sendDMFlow(scanner *bufio.Scanner) {
 		return
 	}
 
-	// ================= SEND =================
 
 	fmt.Print("Message: ")
 	scanner.Scan()
@@ -472,7 +470,7 @@ func sendDMFlow(scanner *bufio.Scanner) {
 	fmt.Printf("📨 Sending DM to %s...\n", recipient)
 }
 
-// ====================== CHAT CLIENT ======================
+
 
 func newChatClient(conn *websocket.Conn, username, room string) *ChatClient {
 	c := &ChatClient{
@@ -1210,7 +1208,6 @@ func doUnregisterUDP() {
 	session.UDPConn.Write(data)
 }
 
-// HTTP Helpers
 func httpPost(path string, body interface{}, token string) (map[string]interface{}, error) {
 	return httpRequest("POST", path, body, token)
 }
@@ -1308,72 +1305,7 @@ func getConversationFile(a, b string) string {
 	return fmt.Sprintf("dm_%s_%s.json", a, b)
 }
 
-// func doListenWS() {
-// 	privateRoom := "private_" + session.UserID
-// 	wsURL := fmt.Sprintf("%s?username=%s&userid=%s&room=%s",
-// 		WS_SERVER, session.Username, session.UserID, privateRoom)
 
-// 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-// 	if err != nil {
-// 		return
-// 	}
-
-// 	session.WSPrivateConn = conn
-
-// 	go func() {
-// 		for {
-// 			_, raw, err := conn.ReadMessage()
-// 			if err != nil {
-// 				session.WSPrivateConn = nil
-// 				return
-// 			}
-
-// 			var msg WSMessage
-// 			if json.Unmarshal(raw, &msg) != nil {
-// 				continue
-// 			}
-
-// 			switch msg.Type {
-// 			case "dm":
-// 				saveDM(LocalMessage{
-// 					Type:      "dm",
-// 					Sender:    msg.Sender,
-// 					Recipient: session.Username,
-// 					Content:   msg.Content,
-// 					Timestamp: msg.Timestamp,
-// 				})
-// 				unreadMu.Lock()
-// 				unreadDM++
-// 				unreadMu.Unlock()
-
-// 			case "error":
-// 				fmt.Printf("\n❌ DM error: %s\n", msg.Content)
-// 				fmt.Print("Choice: ")
-
-// 			case "dm_ack":
-// 				pendingMu.Lock()
-// 				_, exists := pendingDM[msg.ID]
-// 				if exists {
-// 					delete(pendingDM, msg.ID)
-// 				}
-// 				pendingMu.Unlock()
-
-// 				if msg.Content == "delivered" {
-// 					fmt.Println("\n✅ DM delivered")
-// 				} else {
-// 					fmt.Println("\n❌ DM failed")
-// 				}
-// 				fmt.Print("Choice: ")
-
-// 			case "list_all_users":
-// 				users := strings.Split(msg.Content, ", ")
-// 				userListChan <- users
-
-// 			}
-// 		}
-// 	}()
-
-// }
 
 func doListenWS() {
 	session.mu.Lock()
@@ -1477,7 +1409,6 @@ func isTokenExpired() bool {
         return true
     }
 
-    // Parse token không verify signature
     token, _, err := new(jwt.Parser).ParseUnverified(session.Token, jwt.MapClaims{})
     if err != nil {
         return true
@@ -1488,7 +1419,6 @@ func isTokenExpired() bool {
         return true
     }
 
-    // Check exp
     exp, ok := claims["exp"].(float64)
     if !ok {
         return true

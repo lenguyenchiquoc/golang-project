@@ -38,7 +38,7 @@ func (h *NotificationHandler) SendNotification(c *gin.Context) {
 	h.Server.Broadcast(notification)
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":       "Đã gửi thông báo!",
+		"message":       "Success notify!",
 		"clients_count": h.Server.GetClientCount(),
 	})
 }
