@@ -9,8 +9,6 @@ import (
 	"io"
 	grpcserver "managahub/internal/grpc"
 	"unicode"
-
-	// pb "managahub/pkg/proto/managahub/pkg/proto"
 	"net"
 	"net/http"
 	"os"
@@ -755,7 +753,7 @@ func readString(scanner *bufio.Scanner, prompt string, optional bool) (string, b
 			}
 		}
 		if !hasLetter {
-			fmt.Println("⚠️  Khong duoc nhap toan so, vui long nhap chu!")
+			fmt.Println("⚠️  Pls enter word!")
 			continue
 		}
 
@@ -774,7 +772,7 @@ func readStatus(scanner *bufio.Scanner) (string, bool) {
 		if status == "" || status == "ongoing" || status == "completed" {
 			return status, true
 		}
-		fmt.Println("⚠️  Vui long nhap 'ongoing', 'completed' hoac bo trong!")
+		fmt.Println("⚠️  please enter 'ongoing', 'completed' or empty to keep!")
 	}
 }
 

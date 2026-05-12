@@ -1,0 +1,2 @@
+powershell -ExecutionPolicy Bypass
+.\seedmanga.ps1 2>&1 | Tee-Object -FilePath seed_log.txt
